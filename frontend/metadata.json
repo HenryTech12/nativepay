@@ -1,0 +1,6 @@
+{
+  "name": "ElderPay - Voice-First Banking for Everyone",
+  "description": "Voice-first banking platform designed for elderly, low-literacy, and digitally excluded Nigerians with agent-assisted workflow and face verification.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

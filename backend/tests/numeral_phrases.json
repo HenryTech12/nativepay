@@ -1,0 +1,189 @@
+{
+  "_readme": "Test phrases for verifying that voice/process (Whisper transcription + intent parsing) correctly extracts action/amount/recipient from spoken numerals in each supported language. 'confidence' marks how sure we are the phrase and expected_amount are actually correct native usage: 'high' = standard compositional numeral forms in everyday use, 'unverified' = classical/idiomatic numerals we could not confidently confirm without a native speaker — do not trust expected_amount for these until a fluent speaker checks the phrase itself. See backend/scripts/verify_numeral_parsing.py for how these are used.",
+  "cases": [
+    {
+      "id": "en-send-1",
+      "language": "en",
+      "phrase": "Send five thousand naira to Adewale",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": 5000,
+      "expected_recipient": "adewale"
+    },
+    {
+      "id": "en-withdraw-1",
+      "language": "en",
+      "phrase": "Withdraw twenty thousand naira",
+      "confidence": "high",
+      "expected_action": "withdraw",
+      "expected_amount": 20000,
+      "expected_recipient": null
+    },
+    {
+      "id": "en-balance-1",
+      "language": "en",
+      "phrase": "What is my balance",
+      "confidence": "high",
+      "expected_action": "balance",
+      "expected_amount": null,
+      "expected_recipient": null
+    },
+    {
+      "id": "pcm-send-1",
+      "language": "pcm",
+      "phrase": "Send ten thousand naira give Ngozi",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": 10000,
+      "expected_recipient": "ngozi"
+    },
+    {
+      "id": "pcm-withdraw-1",
+      "language": "pcm",
+      "phrase": "I wan withdraw two thousand naira",
+      "confidence": "high",
+      "expected_action": "withdraw",
+      "expected_amount": 2000,
+      "expected_recipient": null
+    },
+    {
+      "id": "pcm-balance-1",
+      "language": "pcm",
+      "phrase": "Abeg check my balance",
+      "confidence": "high",
+      "expected_action": "balance",
+      "expected_amount": null,
+      "expected_recipient": null
+    },
+    {
+      "id": "yo-send-1",
+      "language": "yo",
+      "phrase": "Fi ẹgbẹ̀rún márùn-ún náírà ránṣẹ́ sí Adewale.",
+      "translation": "Send five thousand naira to Adewale.",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": 5000,
+      "expected_recipient": "adewale"
+    },
+    {
+      "id": "yo-withdraw-1",
+      "language": "yo",
+      "phrase": "Mo fẹ́ yọ ẹgbẹ̀rún mẹ́wàá náírà.",
+      "translation": "I want to withdraw ten thousand naira. (\"ẹgbẹrun mewaa\" = thousand-ten, compositional)",
+      "confidence": "high",
+      "expected_action": "withdraw",
+      "expected_amount": 10000,
+      "expected_recipient": null
+    },
+    {
+      "id": "yo-withdraw-2-classical",
+      "language": "yo",
+      "phrase": "Mo fẹ́ yọ ẹgbẹ̀ẹ́dógún náírà.",
+      "translation": "UNVERIFIED — classical Yoruba numeral, likely subtractive/multiplicative construction. Do not trust expected_amount below without a native speaker confirming it first.",
+      "confidence": "unverified",
+      "expected_action": "withdraw",
+      "expected_amount": null,
+      "expected_recipient": null
+    },
+    {
+      "id": "yo-balance-1",
+      "language": "yo",
+      "phrase": "Mélòó ni mo ní lọ́wọ́?",
+      "translation": "How much do I have on hand? (colloquial balance check)",
+      "confidence": "unverified",
+      "expected_action": "balance",
+      "expected_amount": null,
+      "expected_recipient": null
+    },
+    {
+      "id": "ha-send-1",
+      "language": "ha",
+      "phrase": "Aika Naira dubu biyar zuwa Ibrahim.",
+      "translation": "Send five thousand naira to Ibrahim.",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": 5000,
+      "expected_recipient": "ibrahim"
+    },
+    {
+      "id": "ha-withdraw-1",
+      "language": "ha",
+      "phrase": "Ina son cire Naira dubu ashirin.",
+      "translation": "I want to withdraw twenty thousand naira.",
+      "confidence": "high",
+      "expected_action": "withdraw",
+      "expected_amount": 20000,
+      "expected_recipient": null
+    },
+    {
+      "id": "ha-balance-1",
+      "language": "ha",
+      "phrase": "Nawa ne ma'aunin asusuna?",
+      "translation": "What is my account balance?",
+      "confidence": "unverified",
+      "expected_action": "balance",
+      "expected_amount": null,
+      "expected_recipient": null
+    },
+    {
+      "id": "ig-send-1",
+      "language": "ig",
+      "phrase": "Zipu puku ise Naira nye Ngozi.",
+      "translation": "Send five thousand naira to Ngozi.",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": 5000,
+      "expected_recipient": "ngozi"
+    },
+    {
+      "id": "ig-withdraw-1",
+      "language": "ig",
+      "phrase": "Achọrọ m iwepụ puku iri Naira.",
+      "translation": "I want to withdraw ten thousand naira.",
+      "confidence": "high",
+      "expected_action": "withdraw",
+      "expected_amount": 10000,
+      "expected_recipient": null
+    },
+    {
+      "id": "ig-balance-1",
+      "language": "ig",
+      "phrase": "Ego ole ka m nwere n'akaụntụ m?",
+      "translation": "How much money do I have in my account?",
+      "confidence": "unverified",
+      "expected_action": "balance",
+      "expected_amount": null,
+      "expected_recipient": null
+    },
+    {
+      "id": "en-edge-no-amount",
+      "language": "en",
+      "phrase": "Send naira to Adewale",
+      "translation": "Deliberately missing an amount — should not silently default to some number.",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": null,
+      "expected_recipient": "adewale"
+    },
+    {
+      "id": "en-edge-unknown-recipient",
+      "language": "en",
+      "phrase": "Send five thousand naira to Bobrisky",
+      "translation": "Deliberately not-a-registered-recipient — the transaction should be rejected as UNKNOWN_RECIPIENT, not silently sent.",
+      "confidence": "high",
+      "expected_action": "send",
+      "expected_amount": 5000,
+      "expected_recipient": "bobrisky"
+    },
+    {
+      "id": "en-edge-large-amount",
+      "language": "en",
+      "phrase": "Withdraw one hundred and fifty thousand naira",
+      "translation": "Larger, compound English number — checks the parser isn't only reliable on round thousands.",
+      "confidence": "high",
+      "expected_action": "withdraw",
+      "expected_amount": 150000,
+      "expected_recipient": null
+    }
+  ]
+}
