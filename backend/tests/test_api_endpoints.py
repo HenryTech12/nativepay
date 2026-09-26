@@ -36,7 +36,7 @@ async def _fake_transcribe(audio_bytes, filename, language_hint=None):
     return "send five thousand naira to adewale"
 
 
-async def _fake_parse_intent(text):
+async def _fake_parse_intent(text, language=None):
     return ParsedIntent(action="send", amount=5000, recipient="adewale", confidence=0.95)
 
 
@@ -154,7 +154,7 @@ async def _fake_openai_transcribe(audio_bytes, filename, language_hint=None):
     return "OPENAI TRANSCRIPT"
 
 
-async def _fake_openai_parse_intent(text):
+async def _fake_openai_parse_intent(text, language=None):
     return ParsedIntent(action="balance", amount=None, recipient=None, confidence=0.99)
 
 

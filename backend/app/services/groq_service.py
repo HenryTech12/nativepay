@@ -59,14 +59,23 @@ Notes:
 - "send" means transferring to another person — put that person's name in "recipient"."""
 
 
-async def parse_intent(transcript_text: str) -> ParsedIntent:
+async def parse_intent(transcript_text: str, language: Optional[str] = None) -> ParsedIntent:
     client = _get_client()
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if language:
+        messages.append({
+            "role": "system",
+            "content": (
+                f"The speaker selected '{language}' as their NativePay app language "
+                "(en=English, yo=Yoruba, ha=Hausa, ig=Igbo, pcm=Nigerian Pidgin). "
+                "If the transcript is already in that language, extract the intent "
+                "directly from it rather than translating to English first."
+            ),
+        })
+    messages.append({"role": "user", "content": transcript_text})
     completion = client.chat.completions.create(
         model="openai/gpt-oss-120b",  # current Groq-recommended general model as of mid-2026; check console.groq.com/docs/models if this has moved on
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": transcript_text},
-        ],
+        messages=messages,
         temperature=0,
         response_format={"type": "json_object"},
     )

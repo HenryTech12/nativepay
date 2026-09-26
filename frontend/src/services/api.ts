@@ -389,31 +389,70 @@ export const api = {
 
   /**
    * Extract financial intent from text string using backend AI.
+   * `language` lets the backend parse the command in the user's selected
+   * language instead of assuming English (see /api/voice/process, which
+   * already accepts this same field for audio-based extraction).
    */
-  async extractIntent(text: string): Promise<ApiResponse<{
+  async extractIntent(text: string, language?: string): Promise<ApiResponse<{
     action: string;
-    amount?: number;
-    recipient?: string;
+    amount?: number | null;
+    recipient?: string | null;
     confidence?: number;
   }>> {
     return request<{
       action: string;
-      amount?: number;
-      recipient?: string;
+      amount?: number | null;
+      recipient?: string | null;
       confidence?: number;
     }>('/api/ai/intent', {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, language }),
     });
   },
 
   /**
-   * Synthesize audio speech (TTS).
+   * Synthesize audio speech (TTS) for the given text/language.
+   *
+   * NOTE: /api/tts returns raw audio bytes, not JSON, so this deliberately
+   * bypasses the generic `request()` helper above (which only knows how to
+   * parse `application/json` or plain text and would corrupt binary audio
+   * by reading it as text). Language-specific voice/model selection is the
+   * backend's responsibility; the frontend's only job is to pass the
+   * resolved language code through untouched.
    */
-  async synthesizeSpeech(text: string, language: string = 'en'): Promise<ApiResponse<{ audioUrl?: string; audioBase64?: string }>> {
-    return request<{ audioUrl?: string; audioBase64?: string }>('/api/tts', {
-      method: 'POST',
-      body: JSON.stringify({ text, language }),
-    });
+  async synthesizeSpeech(text: string, language: string = 'en'): Promise<ApiResponse<Blob>> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(buildApiUrl('/api/tts'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, language }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        console.warn(`[NativePay API] TTS request failed: HTTP ${response.status}`);
+        return {
+          ok: false,
+          error: 'Voice playback is temporarily unavailable.',
+          technicalError: `HTTP ${response.status} ${response.statusText}`,
+        };
+      }
+
+      const blob = await response.blob();
+      if (!blob || blob.size === 0) {
+        return { ok: false, error: 'Voice playback is temporarily unavailable.', technicalError: 'EMPTY_AUDIO_RESPONSE' };
+      }
+
+      return { ok: true, data: blob };
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.warn('[NativePay API] TTS network error:', err);
+      return { ok: false, error: 'Voice playback is temporarily unavailable.', technicalError: errorMsg };
+    }
   },
 };

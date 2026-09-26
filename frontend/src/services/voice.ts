@@ -1,4 +1,5 @@
 import { TransactionIntent, LanguageCode } from '../types';
+import { api } from './api';
 
 export class VoiceRecorder {
   private mediaStream: MediaStream | null = null;
@@ -195,10 +196,57 @@ export function listenToBrowserSpeech(
   };
 }
 
+let currentCloudAudio: HTMLAudioElement | null = null;
+
 /**
- * Native audio speech synthesis for high reliability feedback in Nigerian languages.
+ * Plays a synthesized-speech audio Blob returned by the backend TTS provider.
  */
-export function speakText(text: string, languageCode: LanguageCode = 'en'): Promise<void> {
+function playAudioBlob(blob: Blob): Promise<void> {
+  return new Promise((resolve) => {
+    if (currentCloudAudio) {
+      try {
+        currentCloudAudio.pause();
+      } catch {
+        // ignore
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentCloudAudio = audio;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      if (currentCloudAudio === audio) currentCloudAudio = null;
+    };
+
+    audio.onended = () => {
+      cleanup();
+      resolve();
+    };
+    audio.onerror = () => {
+      cleanup();
+      resolve();
+    };
+
+    audio.play().catch(() => {
+      cleanup();
+      resolve();
+    });
+  });
+}
+
+/**
+ * Browser Web Speech API fallback. KNOWN PROVIDER LIMITATION: most browsers
+ * (Chrome, Edge, Safari on both desktop and mobile) ship with no Yoruba,
+ * Igbo, or Hausa voice packs, so when this fallback is used for those
+ * languages the text is still correct, but pronunciation will default to
+ * whatever English/Nigerian-English voice the browser can find. This
+ * fallback exists purely so voice feedback is never completely silent when
+ * the cloud provider is unreachable -- it is not a substitute for real
+ * language support.
+ */
+function speakWithBrowserSpeechSynthesis(text: string, languageCode: LanguageCode): Promise<void> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       resolve();
@@ -242,6 +290,57 @@ export function speakText(text: string, languageCode: LanguageCode = 'en'): Prom
 }
 
 /**
+ * Speaks `text` in the user's selected language.
+ *
+ * Provider order:
+ *   1. Backend cloud TTS (/api/tts) -- the provider actually capable of
+ *      Nigerian-language synthesis. `languageCode` is passed through
+ *      untouched so the backend can select the correct voice/model.
+ *   2. Browser Web Speech API -- last-resort fallback so audio is never
+ *      completely silent if the backend is unreachable (see known
+ *      limitation documented on speakWithBrowserSpeechSynthesis above).
+ */
+export async function speakText(text: string, languageCode: LanguageCode = 'en'): Promise<void> {
+  if (!text) return;
+
+  try {
+    const cloudResult = await api.synthesizeSpeech(text, languageCode);
+    if (cloudResult.ok && cloudResult.data) {
+      await playAudioBlob(cloudResult.data);
+      return;
+    }
+    console.warn('[TTS] Cloud synthesis unavailable, falling back to browser speech:', cloudResult.error);
+  } catch (err) {
+    console.warn('[TTS] Cloud synthesis request failed, falling back to browser speech:', err);
+  }
+
+  return speakWithBrowserSpeechSynthesis(text, languageCode);
+}
+
+/**
+ * Maps this frontend's action vocabulary to the backend's.
+ * Backend (app/models.py Action literal): "send" | "balance" | "withdraw" |
+ * "deposit" | "airtime" | "bill" | "unknown". Frontend TransactionAction:
+ * "transfer" | "withdraw" | "airtime" | "balance" | "deposit". Every other
+ * value passes through unchanged -- only "transfer"/"send" actually differ.
+ */
+export function toBackendAction(action: string): string {
+  return action === 'transfer' ? 'send' : action;
+}
+
+export function fromBackendAction(action: string): TransactionIntent['action'] {
+  if (action === 'send') return 'transfer';
+  if (action === 'withdraw' || action === 'airtime' || action === 'balance' || action === 'deposit') {
+    return action;
+  }
+  // Backend also has "bill" and "unknown", neither implemented on the
+  // frontend -- treat as a transfer-shaped intent so it still surfaces
+  // through the usual amount/recipient clarification flow rather than
+  // silently vanishing.
+  return 'transfer';
+}
+
+/**
  * Intelligent Client-Side Intent Parser.
  * Used for instant zero-latency understanding or as a safe fallback when the cloud AI key is invalid/offline.
  */
@@ -276,17 +375,20 @@ export function parseFinancialIntent(rawText: string): TransactionIntent {
     lower.includes('credit') ||
     lower.includes('card')
   ) {
-    const amount = extractAmount(lower) || 1000;
+    const amount = extractAmount(lower);
     const phoneMatch = text.match(/(0[789][01]\d{8}|\+?234[789][01]\d{8})/);
+    // No wrong-recipient risk here: airtime with no phone number named
+    // defaults to the customer's own line, never a third party.
     const recipient = phoneMatch ? phoneMatch[0] : 'My Phone';
 
     return {
       action: 'airtime',
       amount,
       recipient,
-      confidence: 0.92,
+      confidence: amount ? 0.92 : 0.5,
       rawText: text,
       suggestedNarration: 'Airtime recharge',
+      needsClarification: amount === null ? 'amount' : undefined,
     };
   }
 
@@ -297,28 +399,38 @@ export function parseFinancialIntent(rawText: string): TransactionIntent {
     lower.includes('collect cash') ||
     lower.includes('take money')
   ) {
-    const amount = extractAmount(lower) || 5000;
+    const amount = extractAmount(lower);
     return {
       action: 'withdraw',
       amount,
       recipient: 'Cash Withdrawal',
-      confidence: 0.94,
+      confidence: amount ? 0.94 : 0.5,
       rawText: text,
       suggestedNarration: 'Agent POS Cash Withdrawal',
+      needsClarification: amount === null ? 'amount' : undefined,
     };
   }
 
-  // Default: Transfer / Send Money
-  const amount = extractAmount(lower) || 5000;
-  const recipient = extractRecipient(text) || 'Ada Okafor';
+  // Default: Transfer / Send Money.
+  // IMPORTANT: unlike earlier versions of this parser, amount/recipient are
+  // never guessed or defaulted here. A transfer with a missing amount or
+  // recipient must be flagged via `needsClarification` so the caller asks
+  // the user instead of silently executing against a fabricated value.
+  const amount = extractAmount(lower);
+  const recipient = extractRecipient(text);
+
+  let needsClarification: TransactionIntent['needsClarification'];
+  if (amount === null) needsClarification = 'amount';
+  else if (!recipient) needsClarification = 'recipient';
 
   return {
     action: 'transfer',
     amount,
     recipient,
-    confidence: 0.95,
+    confidence: amount !== null && recipient ? 0.9 : 0.4,
     rawText: text,
-    suggestedNarration: `Transfer to ${recipient}`,
+    suggestedNarration: recipient ? `Transfer to ${recipient}` : 'Transfer',
+    needsClarification,
   };
 }
 
@@ -369,6 +481,13 @@ function extractAmount(text: string): number | null {
  * Extracts recipient name from speech phrase.
  * e.g. "Send 5000 to Ada Okafor" -> "Ada Okafor"
  * e.g. "Transfer 2k give my brother Musa" -> "Musa"
+ *
+ * Returns null (never a guessed/default name) when no recipient can be
+ * confidently identified in the transcript -- callers must ask the user
+ * to clarify rather than send money to a fabricated recipient. Names
+ * found here are still spoken-word guesses; the caller is responsible
+ * for resolving the returned name against real NativePay accounts
+ * before treating it as safe to transact against.
  */
 function extractRecipient(text: string): string | null {
   // Patterns like "to <name>", "give <name>", "for <name>"
@@ -382,7 +501,7 @@ function extractRecipient(text: string): string | null {
     if (match && match[1]) {
       const rawName = match[1].trim();
       const lower = rawName.toLowerCase();
-      // Ignore common filler words
+      // Ignore common filler words that aren't actually names
       if (!['naira', 'account', 'bank', 'him', 'her', 'them', 'money'].includes(lower)) {
         // Capitalize nicely
         return rawName
@@ -393,14 +512,5 @@ function extractRecipient(text: string): string | null {
     }
   }
 
-  // Default known demo recipients if matched
-  const knownRecipients = ['Ada Okafor', 'John Doe', 'Olawale Zainab', 'Musa Bello', 'Chidi Obi', 'Bisi Adeleke'];
-  for (const name of knownRecipients) {
-    const firstName = name.split(' ')[0].toLowerCase();
-    if (text.toLowerCase().includes(firstName)) {
-      return name;
-    }
-  }
-
-  return 'Ada Okafor';
+  return null;
 }

@@ -79,14 +79,23 @@ Notes:
 INTENT_MODEL = os.environ.get("OPENAI_INTENT_MODEL", "gpt-5-mini")
 
 
-async def parse_intent(transcript_text: str) -> ParsedIntent:
+async def parse_intent(transcript_text: str, language: Optional[str] = None) -> ParsedIntent:
     client = _get_client()
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if language:
+        messages.append({
+            "role": "system",
+            "content": (
+                f"The speaker selected '{language}' as their NativePay app language "
+                "(en=English, yo=Yoruba, ha=Hausa, ig=Igbo, pcm=Nigerian Pidgin). "
+                "If the transcript is already in that language, extract the intent "
+                "directly from it rather than translating to English first."
+            ),
+        })
+    messages.append({"role": "user", "content": transcript_text})
     completion = client.chat.completions.create(
         model=INTENT_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": transcript_text},
-        ],
+        messages=messages,
         temperature=0,
         response_format={"type": "json_object"},
     )

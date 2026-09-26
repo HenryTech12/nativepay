@@ -240,10 +240,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentCustomer.id) {
       api.getAccount(currentCustomer.id).then((res) => {
         if (isMounted && res.ok && res.data) {
-          setCurrentCustomerState((prev) => ({
-            ...prev,
-            ...res.data,
-          }));
+          setCurrentCustomerState((prev) => {
+            const incoming = { ...res.data };
+            // Guard against a backend hiccup (missing/invalid field) silently
+            // clobbering an already-correct, locally-selected language --
+            // only accept it if it's actually one of our supported codes.
+            if (!incoming.preferredLanguage || !SUPPORTED_LANGUAGES.some((l) => l.code === incoming.preferredLanguage)) {
+              incoming.preferredLanguage = prev.preferredLanguage;
+            }
+            return { ...prev, ...incoming };
+          });
         }
       });
     }

@@ -26,6 +26,8 @@ import {
   isSpeechRecognitionSupported,
   speakText,
   parseFinancialIntent,
+  toBackendAction,
+  fromBackendAction,
 } from '../services/voice';
 import {
   requestCameraStream,
@@ -66,6 +68,10 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
   const [transcript, setTranscript] = useState<string>('');
   const [interimText, setInterimText] = useState<string>('');
   const [intent, setIntent] = useState<TransactionIntent | null>(null);
+  // The transaction id assigned by the backend's own evaluate_intent call
+  // (app/services/transaction_service.py) -- never fabricated client-side,
+  // since /api/transactions/confirm 404s on any id it didn't issue itself.
+  const [serverTxId, setServerTxId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
   const [showReceipt, setShowReceipt] = useState<boolean>(false);
@@ -213,26 +219,138 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     }
   };
 
+  // Runs the spoken intent through the backend's own state machine
+  // (transaction_service.evaluate_intent, via POST /api/transactions/confirm
+  // with no `id`) instead of re-implementing amount/recipient validation on
+  // the client. The backend is the single source of truth for whether a
+  // recipient name matches a known account (store.recipients) and whether
+  // the amount is affordable -- this also issues the real transaction id
+  // that later verify-face/send calls must use.
+  type EvaluatedTransaction = {
+    id: string;
+    state: string;
+    needsClarification?: 'amount' | 'recipient' | 'accountNumber';
+    recipientAccount?: string;
+  };
+
+  const evaluateWithBackend = async (
+    candidate: TransactionIntent
+  ): Promise<{ ok: true; record: EvaluatedTransaction } | { ok: false }> => {
+    try {
+      const res = await api.confirmTransaction({
+        userId: currentCustomer.id,
+        action: toBackendAction(candidate.action),
+        amount: candidate.amount ?? 0,
+        recipient: candidate.recipient ?? '',
+        confidence: candidate.confidence,
+      });
+      if (!res.ok || !res.data) return { ok: false };
+      // Backend response is shaped like TransactionRecord (id/state/...),
+      // not the frontend's own `Transaction` type -- read it loosely here
+      // rather than mis-typing the whole api.confirmTransaction signature.
+      const record = res.data as unknown as EvaluatedTransaction;
+      if (!record.id || !record.state) return { ok: false };
+      return { ok: true, record };
+    } catch {
+      return { ok: false };
+    }
+  };
+
+  // Stops the flow to ask the user for missing/ambiguous information,
+  // instead of proceeding with a guessed amount or recipient.
+  const askForClarification = (
+    message: string,
+    partialIntent: TransactionIntent
+  ) => {
+    setIntent(partialIntent);
+    setVoiceState('error');
+    setErrorMessage(message);
+    speakText(message, speechLang);
+  };
+
   // Process Text or Speech through Intent interpretation
   const processSpokenResult = async (rawText: string) => {
     setVoiceState('understanding');
 
-    // 1. Try Backend NLP intent extraction
-    const backendRes = await api.extractIntent(rawText);
+    // 1. Try Backend NLP intent extraction, language-aware so Yoruba/Igbo/
+    //    Hausa/Pidgin commands don't need to be translated to English first.
+    const backendRes = await api.extractIntent(rawText, speechLang);
+
     let parsed: TransactionIntent;
 
     if (backendRes.ok && backendRes.data && backendRes.data.action) {
+      const amount = backendRes.data.amount ?? null;
+      const recipient = backendRes.data.recipient ?? null;
       parsed = {
-        action: (backendRes.data.action as TransactionIntent['action']) || 'transfer',
-        amount: backendRes.data.amount || 5000,
-        recipient: backendRes.data.recipient || 'Ada Okafor',
-        confidence: backendRes.data.confidence || 0.95,
+        action: fromBackendAction(backendRes.data.action),
+        amount,
+        recipient,
+        confidence: backendRes.data.confidence ?? 0.6,
         rawText,
+        needsClarification: amount === null ? 'amount' : !recipient ? 'recipient' : undefined,
       };
     } else {
       // 2. Reliable local parser (covers Pidgin, English, Hausa, Yoruba, etc.)
       parsed = parseFinancialIntent(rawText);
     }
+
+    const needsRecipient = parsed.action === 'transfer' || parsed.action === 'airtime';
+    const needsAmount = parsed.action !== 'balance';
+
+    // Never execute against a fabricated amount -- ask instead.
+    if (needsAmount && (parsed.amount === null || parsed.amount === undefined || parsed.amount <= 0)) {
+      askForClarification(phrases.askAmount, parsed);
+      return;
+    }
+
+    // Never execute against a fabricated recipient -- ask instead.
+    if (needsRecipient && !parsed.recipient) {
+      askForClarification(phrases.askRecipient, parsed);
+      return;
+    }
+
+    // 3. Validate against the backend's own state machine (recipient must
+    //    match a known account, amount must be affordable, etc.) rather than
+    //    re-implementing those checks on the client. This also gives us the
+    //    real server-issued transaction id used by verify-face/send below.
+    const evaluation = await evaluateWithBackend(parsed);
+    if (evaluation.ok) {
+      const { record } = evaluation;
+      setServerTxId(record.id);
+
+      if (record.state === 'UNKNOWN_RECIPIENT') {
+        askForClarification(
+          parsed.recipient ? phrases.recipientNotFound(parsed.recipient) : phrases.askRecipient,
+          { ...parsed, needsClarification: 'recipient_not_found' }
+        );
+        return;
+      }
+      if (record.state === 'INVALID_AMOUNT' || record.state === 'LOW_AI_CONFIDENCE') {
+        askForClarification(
+          record.needsClarification === 'recipient' ? phrases.askRecipient : phrases.askAmount,
+          { ...parsed, needsClarification: record.needsClarification === 'recipient' ? 'recipient' : 'amount' }
+        );
+        return;
+      }
+      if (record.state === 'INSUFFICIENT_FUNDS') {
+        const msg = phrases.insufficientFunds(currentCustomer.balance, parsed.amount ?? 0);
+        askForClarification(msg, parsed);
+        return;
+      }
+      if (record.state === 'UNSUPPORTED_ACTION') {
+        askForClarification(phrases.didNotCatch, parsed);
+        return;
+      }
+      if (record.recipientAccount) {
+        parsed = { ...parsed, recipientAccount: record.recipientAccount };
+      }
+      // CONFIRMATION_REQUIRED / TRANSACTION_PROCESSING (balance): fall
+      // through to the confirmation screen below.
+    }
+    // Backend unreachable (evaluation.ok === false): fall back to the local
+    // guard already applied above (non-null amount/recipient) so the demo
+    // still works offline, without pretending we validated against real
+    // accounts.
 
     setIntent(parsed);
     setVoiceState('confirming');
@@ -241,11 +359,11 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     let spokenConfirmation = '';
     if (parsed.action === 'balance') {
       spokenConfirmation = phrases.balanceResponse(currentCustomer.balance);
-    } else if (parsed.action === 'transfer') {
+    } else if (parsed.action === 'transfer' && parsed.amount !== null && parsed.recipient) {
       spokenConfirmation = phrases.transferConfirm(parsed.amount, parsed.recipient);
-    } else if (parsed.action === 'withdraw') {
+    } else if (parsed.action === 'withdraw' && parsed.amount !== null) {
       spokenConfirmation = phrases.withdrawConfirm(parsed.amount);
-    } else if (parsed.action === 'airtime') {
+    } else if (parsed.action === 'airtime' && parsed.amount !== null && parsed.recipient) {
       spokenConfirmation = phrases.airtimeConfirm(parsed.amount, parsed.recipient);
     }
 
@@ -270,12 +388,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     }
 
     // Check balance sufficiency
-    if (intent.amount > currentCustomer.balance) {
+    const requestedAmount = intent.amount ?? 0;
+    if (requestedAmount > currentCustomer.balance) {
       setVoiceState('error');
       setErrorMessage(
-        phrases.insufficientFunds(currentCustomer.balance, intent.amount)
+        phrases.insufficientFunds(currentCustomer.balance, requestedAmount)
       );
-      speakText(phrases.insufficientFunds(currentCustomer.balance, intent.amount), speechLang);
+      speakText(phrases.insufficientFunds(currentCustomer.balance, requestedAmount), speechLang);
       return;
     }
 
@@ -352,37 +471,45 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setVoiceState('transacting');
 
     const txReference = `NP-${Math.floor(100000 + Math.random() * 900000)}`;
-    const txId = `tx_${Date.now()}`;
+    // Use the id the backend itself issued when we evaluated this intent
+    // (see evaluateWithBackend) -- /api/transactions/confirm 404s on any
+    // id it didn't create, so a client-fabricated id here would silently
+    // no-op every backend call below.
+    const txId = serverTxId;
 
     // 1. Try sending through backend transaction flow
     try {
-      await api.confirmTransaction({
-        id: txId,
-        userId: currentCustomer.id,
-        action: intent.action,
-        amount: intent.amount,
-        recipient: intent.recipient,
-        confidence: intent.confidence,
-      });
+      if (txId) {
+        await api.confirmTransaction({
+          id: txId,
+          userId: currentCustomer.id,
+          action: toBackendAction(intent.action),
+          amount: intent.amount ?? 0,
+          recipient: intent.recipient ?? '',
+          confidence: intent.confidence,
+        });
 
-      await api.verifyTransactionFace({
-        id: txId,
-        faceDescriptor: descriptor,
-        matched: true,
-      });
+        await api.verifyTransactionFace({
+          id: txId,
+          faceDescriptor: descriptor,
+          matched: true,
+        });
 
-      await api.sendTransaction(txId);
+        await api.sendTransaction(txId);
+      }
     } catch (err) {
       console.warn('[Backend tx sync notice]:', err);
       // Backend may be in demo mode without db connection; local ledger handles seamlessly
     }
 
-    // Create and save final verified transaction
+    // Create and save final verified transaction. Falls back to a locally
+    // generated id only when the backend call above didn't run/succeed --
+    // never sent to the backend itself, purely for local receipt display.
     const newTx: Transaction = {
-      id: txId,
+      id: txId ?? `tx_${Date.now()}`,
       userId: currentCustomer.id,
       action: intent.action,
-      amount: intent.amount,
+      amount: intent.amount ?? 0,
       recipient: intent.recipient,
       status: 'successful',
       createdAt: new Date().toISOString(),
@@ -397,13 +524,15 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setVoiceState('success');
 
     // Spoken completion in customer language
+    const safeAmount = intent.amount ?? 0;
+    const safeRecipient = intent.recipient ?? '';
     let completionMessage = '';
     if (intent.action === 'transfer') {
-      completionMessage = phrases.transferSuccess(intent.amount, intent.recipient, txReference);
+      completionMessage = phrases.transferSuccess(safeAmount, safeRecipient, txReference);
     } else if (intent.action === 'withdraw') {
-      completionMessage = phrases.withdrawSuccess(intent.amount, txReference);
+      completionMessage = phrases.withdrawSuccess(safeAmount, txReference);
     } else if (intent.action === 'airtime') {
-      completionMessage = phrases.airtimeSuccess(intent.amount, intent.recipient, txReference);
+      completionMessage = phrases.airtimeSuccess(safeAmount, safeRecipient, txReference);
     } else {
       completionMessage = phrases.balanceSuccess(currentCustomer.balance);
     }
@@ -542,7 +671,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
                       You are sending
                     </span>
                     <div className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight mt-1">
-                      ₦{intent.amount.toLocaleString()}
+                      ₦{(intent.amount ?? 0).toLocaleString()}
                     </div>
                   </div>
 
@@ -672,7 +801,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
               {intent && intent.action !== 'balance' ? (
                 <>
                   <div className="text-4xl font-extrabold text-emerald-700 tracking-tight my-4">
-                    ₦{intent.amount.toLocaleString()}
+                    ₦{(intent.amount ?? 0).toLocaleString()}
                   </div>
                   <p className="text-slate-600 text-base mb-6">
                     Successfully sent to <span className="font-bold text-slate-900">{intent.recipient}</span>
