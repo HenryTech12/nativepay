@@ -1,220 +1,84 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
-import { ProblemSection } from './components/ProblemSection';
-import { TheBigIdea } from './components/TheBigIdea';
-import { HowItWorks } from './components/HowItWorks';
-import { AIPipeline } from './components/AIPipeline';
-import { InteractiveVoiceDemo } from './components/InteractiveVoiceDemo';
-import { TransactionTypes } from './components/TransactionTypes';
-import { AgentSection } from './components/AgentSection';
-import { BeforeAfter } from './components/BeforeAfter';
-import { TrustSafety } from './components/TrustSafety';
-import { ImpactSection } from './components/ImpactSection';
-import { HackathonProof } from './components/HackathonProof';
-import { ArchitectureDiagram } from './components/ArchitectureDiagram';
-import { DemoCTA } from './components/DemoCTA';
 import { Footer } from './components/Footer';
-
-import { VirtualPosApp } from './pages/VirtualPosApp';
+import { LandingPage } from './pages/LandingPage';
+import { CustomerHome } from './pages/CustomerHome';
+import { BalanceView } from './pages/BalanceView';
+import { TransactionHistoryView } from './pages/TransactionHistoryView';
 import { PosAgentView } from './pages/PosAgentView';
-import { HistoryPage } from './pages/HistoryPage';
-import { OnboardingPage } from './pages/OnboardingPage';
-import { ArchitecturePage } from './pages/ArchitecturePage';
+import { OnboardingFlow } from './pages/OnboardingFlow';
+import { Mic, X } from 'lucide-react';
 
-import { Language } from './types';
-import { setSoundEnabled } from './lib/audio';
+const MainAppContent: React.FC = () => {
+  const { viewMode, openVoiceModal, bannerMessage, clearBanner } = useApp();
 
-export default function App() {
-  const [currentRoute, setCurrentRoute] = useState<string>('/');
-  const [selectedLanguage, setSelectedLanguage] = useState<Language>('yo');
-  const [soundOn, setSoundOn] = useState<boolean>(true);
-
-  // Sync route with URL hash on load and hashchange
-  useEffect(() => {
-    const handleHash = () => {
-      const hash = window.location.hash.replace('#', '') || '/';
-      setCurrentRoute(hash);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    if (window.location.hash) {
-      handleHash();
-    }
-
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
-  }, []);
-
-  const navigateTo = (route: string) => {
-    setCurrentRoute(route);
-    window.location.hash = route === '/' ? '' : route;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleToggleSound = () => {
-    const next = !soundOn;
-    setSoundOn(next);
-    setSoundEnabled(next);
-  };
-
-  // Route Views
-  if (currentRoute === '/app') {
-    return (
-      <div className="min-h-screen bg-[#FAF9F5] font-sans antialiased text-[#0F1713]">
-        <Navbar
-          activeRoute={currentRoute}
-          onNavigate={navigateTo}
-          soundEnabled={soundOn}
-          onToggleSound={handleToggleSound}
-          selectedLanguage={selectedLanguage}
-          onSelectLanguage={setSelectedLanguage}
-        />
-        <VirtualPosApp onNavigate={navigateTo} />
-      </div>
-    );
-  }
-
-  if (currentRoute === '/pos') {
-    return (
-      <div className="min-h-screen bg-[#FAF9F5] font-sans antialiased text-[#0F1713]">
-        <Navbar
-          activeRoute={currentRoute}
-          onNavigate={navigateTo}
-          soundEnabled={soundOn}
-          onToggleSound={handleToggleSound}
-          selectedLanguage={selectedLanguage}
-          onSelectLanguage={setSelectedLanguage}
-        />
-        <PosAgentView onNavigate={navigateTo} />
-      </div>
-    );
-  }
-
-  if (currentRoute === '/history') {
-    return (
-      <div className="min-h-screen bg-[#FAF9F5] font-sans antialiased text-[#0F1713]">
-        <Navbar
-          activeRoute={currentRoute}
-          onNavigate={navigateTo}
-          soundEnabled={soundOn}
-          onToggleSound={handleToggleSound}
-          selectedLanguage={selectedLanguage}
-          onSelectLanguage={setSelectedLanguage}
-        />
-        <HistoryPage onNavigate={navigateTo} />
-      </div>
-    );
-  }
-
-  if (currentRoute === '/onboarding') {
-    return (
-      <div className="min-h-screen bg-[#FAF9F5] font-sans antialiased text-[#0F1713]">
-        <Navbar
-          activeRoute={currentRoute}
-          onNavigate={navigateTo}
-          soundEnabled={soundOn}
-          onToggleSound={handleToggleSound}
-          selectedLanguage={selectedLanguage}
-          onSelectLanguage={setSelectedLanguage}
-        />
-        <OnboardingPage onNavigate={navigateTo} />
-      </div>
-    );
-  }
-
-  if (currentRoute === '/architecture') {
-    return (
-      <div className="min-h-screen bg-[#FAF9F5] font-sans antialiased text-[#0F1713]">
-        <Navbar
-          activeRoute={currentRoute}
-          onNavigate={navigateTo}
-          soundEnabled={soundOn}
-          onToggleSound={handleToggleSound}
-          selectedLanguage={selectedLanguage}
-          onSelectLanguage={setSelectedLanguage}
-        />
-        <ArchitecturePage onNavigate={navigateTo} />
-      </div>
-    );
-  }
-
-  // Master Landing Page
   return (
-    <div className="min-h-screen bg-[#FAF9F5] font-sans antialiased text-[#0F1713] selection:bg-[#0D8253] selection:text-white">
-      {/* Universal Top Navigation */}
-      <Navbar
-        activeRoute={currentRoute}
-        onNavigate={navigateTo}
-        soundEnabled={soundOn}
-        onToggleSound={handleToggleSound}
-        selectedLanguage={selectedLanguage}
-        onSelectLanguage={setSelectedLanguage}
-      />
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-emerald-100 selection:text-emerald-900">
+      {/* Banner / Toast message notification */}
+      {bannerMessage && (
+        <div
+          className={`px-4 py-3 text-center text-sm font-semibold flex items-center justify-center gap-3 relative transition-all z-50 ${
+            bannerMessage.type === 'error'
+              ? 'bg-rose-600 text-white'
+              : bannerMessage.type === 'warning'
+              ? 'bg-amber-500 text-white'
+              : bannerMessage.type === 'success'
+              ? 'bg-emerald-700 text-white'
+              : 'bg-slate-800 text-white'
+          }`}
+        >
+          <span>{bannerMessage.message}</span>
+          <button
+            onClick={clearBanner}
+            className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+            aria-label="Dismiss banner"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
-      <main className="space-y-4">
-        {/* Hero Section */}
-        <Hero
-          onLaunchDemo={() => navigateTo('/app')}
-          onExplore={() => {
-            const el = document.getElementById('the-big-idea');
-            el?.scrollIntoView({ behavior: 'smooth' });
-          }}
-        />
+      {/* Global Navigation Bar */}
+      <Navbar />
 
-        {/* The Real Problem Section */}
-        <ProblemSection />
-
-        {/* The Big Idea & Philosophical Core */}
-        <TheBigIdea />
-
-        {/* How It Works (5-Step Voice Flow) */}
-        <HowItWorks />
-
-        {/* Interactive Voice Banking Simulator (Embedded Sandbox) */}
-        <InteractiveVoiceDemo
-          onOpenFullApp={() => navigateTo('/app')}
-        />
-
-        {/* AI & Voice Acoustic Pipeline */}
-        <AIPipeline />
-
-        {/* Versatile Transaction Types (Transfer, Cash-Out, Deposit, Balance) */}
-        <TransactionTypes
-          onSelectType={() => {
-            const el = document.getElementById('demo');
-            el?.scrollIntoView({ behavior: 'smooth' });
-          }}
-        />
-
-        {/* Built for Existing Agent Infrastructure */}
-        <AgentSection
-          onOpenAgentPos={() => navigateTo('/pos')}
-        />
-
-        {/* Interactive Before vs After Comparison */}
-        <BeforeAfter />
-
-        {/* Trust & Defense-In-Depth Security */}
-        <TrustSafety />
-
-        {/* Real-World Impact & Inclusion Statistics */}
-        <ImpactSection />
-
-        {/* Hackathon Proof (8 Stages Built For Real World) */}
-        <HackathonProof />
-
-        {/* Technical Architecture Topography */}
-        <ArchitectureDiagram />
-
-        {/* High-Impact CTA Banner */}
-        <DemoCTA
-          onLaunchDemo={() => navigateTo('/app')}
-        />
+      {/* Dynamic View Router */}
+      <main className="flex-1">
+        {viewMode === 'landing' && <LandingPage />}
+        {viewMode === 'customer-home' && <CustomerHome />}
+        {viewMode === 'customer-balance' && <BalanceView />}
+        {viewMode === 'customer-history' && <TransactionHistoryView />}
+        {viewMode === 'pos-agent' && <PosAgentView />}
+        {viewMode === 'onboarding' && <OnboardingFlow />}
       </main>
 
-      {/* Footer with honest demo disclosures & links */}
-      <Footer onNavigate={navigateTo} />
+      {/* Global Floating Quick-Voice Trigger Button (visible when not on landing or pos-agent) */}
+      {viewMode !== 'landing' && viewMode !== 'pos-agent' && (
+        <div className="fixed bottom-6 right-6 z-30">
+          <button
+            onClick={openVoiceModal}
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/30 flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer focus:outline-none focus:ring-4 focus:ring-emerald-400/50"
+            aria-label="Speak to NativePay"
+            title="Speak to NativePay"
+          >
+            <Mic className="w-7 h-7 sm:w-8 sm:h-8" />
+          </button>
+        </div>
+      )}
+
+      {/* Global Footer */}
+      <Footer />
     </div>
+  );
+};
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppProvider>
+        <MainAppContent />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }
