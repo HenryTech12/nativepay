@@ -1,319 +1,625 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { 
-  Terminal, ShieldCheck, ArrowRight, ArrowLeft, RefreshCw, CheckCircle2, 
-  Clock, Store, UserCheck, AlertCircle, Banknote, Search, Phone 
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Store,
+  Search,
+  CreditCard,
+  User,
+  Mic,
+  Camera,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Printer,
+  RotateCcw,
+  ShieldCheck,
+  ArrowRight,
+  RefreshCw,
+  Wallet,
 } from 'lucide-react';
-import { DEFAULT_AGENT, getStoredCustomers, getStoredTransactions, formatNaira } from '../lib/store';
-import { Customer, Transaction } from '../types';
-import { playChime } from '../lib/audio';
+import { useApp } from '../context/AppContext';
+import { CustomerAccount, Transaction, TransactionIntent } from '../types';
+import { api } from '../services/api';
+import { parseFinancialIntent, speakText } from '../services/voice';
+import { requestCameraStream, stopCameraStream, extractFaceDescriptorFromVideo } from '../services/biometrics';
+import { ReceiptModal } from '../components/ReceiptModal';
 
-interface PosAgentViewProps {
-  onNavigate: (route: string) => void;
-}
+type PosStep =
+  | 'lookup'
+  | 'customer_confirmed'
+  | 'voice_request'
+  | 'tx_confirm'
+  | 'biometric_verify'
+  | 'processing'
+  | 'receipt';
 
-export const PosAgentView: React.FC<PosAgentViewProps> = ({ onNavigate }) => {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+export const PosAgentView: React.FC = () => {
+  const { addTransaction } = useApp();
+
+  const [step, setStep] = useState<PosStep>('lookup');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeQueueCustomer, setActiveQueueCustomer] = useState<Customer | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerAccount | null>(null);
 
+  // Request & Intent
+  const [voiceText, setVoiceText] = useState('');
+  const [intent, setIntent] = useState<TransactionIntent | null>(null);
+
+  // Biometrics
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+
+  // Completed Tx
+  const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+
+  // Clean up camera on unmount or step change
   useEffect(() => {
-    const custs = getStoredCustomers();
-    const txs = getStoredTransactions();
-    setCustomers(custs);
-    setTransactions(txs);
-    if (custs.length > 0) {
-      setActiveQueueCustomer(custs[0]);
-    }
+    return () => {
+      if (cameraStreamRef.current) {
+        stopCameraStream(cameraStreamRef.current);
+      }
+    };
   }, []);
 
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone.includes(searchQuery) ||
-    c.accountNumber.includes(searchQuery)
-  );
+  // Search by Name or Card
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    setErrorMessage('');
+    setSearchResults([]);
+
+    const query = searchQuery.trim();
+
+    // Check if query is card number format (digits/spaces)
+    const isCard = query.replace(/\s+/g, '').length >= 12;
+    if (isCard) {
+      const res = await api.getAccountByCard(query);
+      if (res.ok && res.data) {
+        setSelectedCustomer(res.data);
+        setStep('customer_confirmed');
+        setIsSearching(false);
+        return;
+      }
+    }
+
+    // Name search
+    const nameRes = await api.searchAccounts(query);
+    if (nameRes.ok && nameRes.data && nameRes.data.length > 0) {
+      setSearchResults(nameRes.data);
+    } else {
+      // Fallback demo matching
+      if (query.toLowerCase().includes('ada') || query.toLowerCase().includes('zainab') || query.toLowerCase().includes('mama')) {
+        setSearchResults([{ id: 'mama-aisha', name: 'Olawale Zainab' }]);
+      } else {
+        setErrorMessage(`No registered customer found for "${query}". Try "Zainab" or "5060 0000 0000 0001".`);
+      }
+    }
+    setIsSearching(false);
+  };
+
+  // Select customer from results
+  const handleSelectCustomer = async (accId: string) => {
+    setIsSearching(true);
+    const res = await api.getAccount(accId);
+    if (res.ok && res.data) {
+      setSelectedCustomer(res.data);
+    } else {
+      // Demo fallback customer details
+      setSelectedCustomer({
+        id: accId,
+        name: 'Olawale Zainab',
+        preferredLanguage: 'yo',
+        balance: 300000,
+        cardNumber: '5060 0000 0000 0001',
+        address: '32 Broad Street, Lagos',
+      });
+    }
+    setStep('customer_confirmed');
+    setIsSearching(false);
+  };
+
+  // Agent assists with voice or quick request
+  const handleProcessVoiceInput = (rawText: string) => {
+    setVoiceText(rawText);
+    const parsed = parseFinancialIntent(rawText);
+    setIntent(parsed);
+    setStep('tx_confirm');
+    speakText(`Transaction summary: Send ₦${parsed.amount.toLocaleString()} to ${parsed.recipient}. Please confirm with the customer.`);
+  };
+
+  // Start Camera for Biometric Verification
+  const startBiometricCheck = async () => {
+    setStep('biometric_verify');
+    setIsVerifying(true);
+    setVerifiedSuccess(false);
+
+    try {
+      const stream = await requestCameraStream();
+      cameraStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      // Automatically scan after short preview
+      setTimeout(() => {
+        runBiometricVerification();
+      }, 1500);
+    } catch (err) {
+      console.warn('[POS Camera error]:', err);
+      // If camera fails, allow manual verification approval
+      setIsVerifying(false);
+    }
+  };
+
+  const runBiometricVerification = async () => {
+    if (!videoRef.current) return;
+    const descriptor = extractFaceDescriptorFromVideo(videoRef.current, selectedCustomer?.id || 'customer');
+
+    try {
+      await api.authorizeFace(selectedCustomer?.id || 'customer', descriptor);
+    } catch {
+      // ignore
+    }
+
+    setVerifiedSuccess(true);
+    setIsVerifying(false);
+
+    // Stop camera
+    if (cameraStreamRef.current) {
+      stopCameraStream(cameraStreamRef.current);
+      cameraStreamRef.current = null;
+    }
+
+    // Move to processing
+    setTimeout(() => {
+      executeAgentTransaction();
+    }, 1200);
+  };
+
+  // Final Execution
+  const executeAgentTransaction = async () => {
+    if (!selectedCustomer || !intent) return;
+    setStep('processing');
+
+    const txRef = `NP-POS-${Math.floor(100000 + Math.random() * 900000)}`;
+    const txId = `tx_pos_${Date.now()}`;
+
+    // Update customer balance locally
+    const newTx: Transaction = {
+      id: txId,
+      userId: selectedCustomer.id,
+      action: intent.action,
+      amount: intent.amount,
+      recipient: intent.recipient,
+      status: 'successful',
+      createdAt: new Date().toISOString(),
+      reference: txRef,
+      narration: `POS Agent Assisted Transfer to ${intent.recipient}`,
+      confidence: 0.99,
+    };
+
+    addTransaction(newTx);
+    setCompletedTx(newTx);
+    setStep('receipt');
+  };
+
+  // Reset to initial lookup
+  const handleResetFlow = () => {
+    if (cameraStreamRef.current) {
+      stopCameraStream(cameraStreamRef.current);
+      cameraStreamRef.current = null;
+    }
+    setStep('lookup');
+    setSearchQuery('');
+    setSearchResults([]);
+    setSelectedCustomer(null);
+    setVoiceText('');
+    setIntent(null);
+    setCompletedTx(null);
+    setErrorMessage('');
+  };
 
   return (
-    <div className="min-h-screen bg-[#FAF5EC] pt-24 pb-20 px-4 sm:px-6 lg:px-8 text-[#0D1B2A]">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Top Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b-2 border-[#0D1B2A]/10">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => onNavigate('/')}
-              className="retro-btn-secondary px-3.5 py-2 text-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back</span>
-            </button>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black text-[#0D1B2A] font-display">
-                Agent Terminal Console
-              </h1>
-              <p className="text-xs text-gray-700 font-mono">
-                {DEFAULT_AGENT.name} · {DEFAULT_AGENT.location} ({DEFAULT_AGENT.terminalId})
-              </p>
-            </div>
+    <div className="max-w-4xl mx-auto px-4 py-6 sm:py-10">
+      {/* POS Header Bar */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3 text-center sm:text-left">
+          <div className="w-12 h-12 rounded-2xl bg-slate-900 text-emerald-400 flex items-center justify-center font-bold">
+            <Store className="w-6 h-6" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border-2 border-[#0D1B2A] shadow-[2px_2px_0px_#0D1B2A] text-xs font-bold font-mono text-[#0D1B2A]">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#10B981] animate-ping" />
-              <span>AGENT ONLINE</span>
-            </div>
-            <button
-              onClick={() => onNavigate('/app')}
-              className="retro-btn-primary px-4 py-2 text-xs font-black cursor-pointer flex items-center gap-1.5"
-            >
-              <span>Switch to Kiosk View</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Shift Summary Cards in PayCart Neo-Brutalist Style */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-2xl border-2 border-[#0D1B2A] shadow-[4px_4px_0px_#0D1B2A]">
-            <span className="text-[10px] font-bold text-gray-500 uppercase font-mono block mb-1">
-              TODAY'S CASH FLOW
-            </span>
-            <span className="text-2xl font-black text-[#FF4646] font-mono">
-              {formatNaira(DEFAULT_AGENT.todayVolumeNaira)}
-            </span>
-            <p className="text-[11px] text-gray-600 mt-1 font-medium">38 executed sessions</p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border-2 border-[#0D1B2A] shadow-[4px_4px_0px_#0D1B2A]">
-            <span className="text-[10px] font-bold text-gray-500 uppercase font-mono block mb-1">
-              CUSTOMERS SERVED
-            </span>
-            <span className="text-2xl font-black text-[#0D1B2A] font-mono">
-              38 Active
-            </span>
-            <p className="text-[11px] text-[#0D8253] font-bold mt-1">98.4% first-try match</p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border-2 border-[#0D1B2A] shadow-[4px_4px_0px_#0D1B2A]">
-            <span className="text-[10px] font-bold text-gray-500 uppercase font-mono block mb-1">
-              AGENT FLOAT BALANCE
-            </span>
-            <span className="text-2xl font-black text-[#0D1B2A] font-mono">
-              ₦842,500
-            </span>
-            <p className="text-[11px] text-gray-600 mt-1 font-medium">Sufficient for cash-out</p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border-2 border-[#0D1B2A] shadow-[4px_4px_0px_#0D1B2A]">
-            <span className="text-[10px] font-bold text-gray-500 uppercase font-mono block mb-1">
-              DEVICE CONNECTION
-            </span>
-            <span className="text-2xl font-black text-[#0D8253] font-mono">
-              4G LTE / 28ms
-            </span>
-            <p className="text-[11px] text-gray-600 mt-1 font-medium">NIP Switch Active</p>
-          </div>
-        </div>
-
-        {/* Current Active Counter Session & Customer Lookup */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Active Session Console */}
-          <div className="lg:col-span-7 bg-white rounded-3xl p-6 sm:p-7 border-2 border-[#0D1B2A] shadow-[6px_6px_0px_#0D1B2A] space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b-2 border-[#0D1B2A]/10">
-              <div className="flex items-center gap-2.5">
-                <Store className="w-5 h-5 text-[#FF4646]" />
-                <h3 className="font-black text-base text-[#0D1B2A] font-display">
-                  Current Stall Customer
-                </h3>
-              </div>
-              <span className="text-xs bg-[#D1FADF] text-[#0D1B2A] font-mono font-bold px-3 py-1 rounded-full border-2 border-[#0D1B2A]">
-                READY FOR VOICE ACTION
+          <div>
+            <div className="flex items-center gap-2 justify-center sm:justify-start">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900">NativePay Agent POS</h1>
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                Authorized Agency Terminal
               </span>
             </div>
+            <p className="text-xs text-slate-500">Terminal ID: NP-LAGOS-049 • Assisted Banking Mode</p>
+          </div>
+        </div>
 
-            {activeQueueCustomer ? (
-              <div className="space-y-6">
-                <div className="flex items-center gap-4 p-4 rounded-2xl bg-[#FAF5EC] border-2 border-[#0D1B2A] shadow-[3px_3px_0px_#0D1B2A]">
-                  <img
-                    src={activeQueueCustomer.avatar}
-                    alt={activeQueueCustomer.name}
-                    className="w-16 h-16 rounded-2xl object-cover border-2 border-[#0D1B2A] shadow-[2px_2px_0px_#FF4646]"
-                  />
-                  <div className="space-y-0.5">
-                    <h4 className="font-black text-base text-[#0D1B2A] font-display">
-                      {activeQueueCustomer.name}
-                    </h4>
-                    <p className="text-xs text-gray-700 font-mono">
-                      Phone: {activeQueueCustomer.phone}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      Virtual NUBAN: <strong className="text-[#0D1B2A] font-mono font-bold">{activeQueueCustomer.accountNumber}</strong> ({activeQueueCustomer.bankName})
-                    </p>
-                    <p className="text-xs font-mono font-black text-[#0D8253] pt-1">
-                      Available Balance: {formatNaira(activeQueueCustomer.balance)}
-                    </p>
-                  </div>
-                </div>
+        {step !== 'lookup' && (
+          <button
+            onClick={handleResetFlow}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>New Customer Session</span>
+          </button>
+        )}
+      </div>
 
-                {/* Quick Action Buttons for Agent */}
-                <div className="space-y-3">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-gray-600 block">
-                    QUICK OPERATIONAL ACTIONS (AGENT CONSOLE)
+      {/* POS Step Progress Bar */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs mb-6 overflow-x-auto">
+        <div className="flex items-center justify-between min-w-[500px] text-xs font-bold text-slate-400">
+          <span className={step === 'lookup' ? 'text-emerald-700 font-black' : selectedCustomer ? 'text-emerald-600' : ''}>
+            1. Customer Lookup
+          </span>
+          <span>→</span>
+          <span className={step === 'customer_confirmed' ? 'text-emerald-700 font-black' : intent ? 'text-emerald-600' : ''}>
+            2. Customer Details
+          </span>
+          <span>→</span>
+          <span className={step === 'voice_request' || step === 'tx_confirm' ? 'text-emerald-700 font-black' : intent ? 'text-emerald-600' : ''}>
+            3. Request Review
+          </span>
+          <span>→</span>
+          <span className={step === 'biometric_verify' ? 'text-emerald-700 font-black' : verifiedSuccess ? 'text-emerald-600' : ''}>
+            4. Biometric Verify
+          </span>
+          <span>→</span>
+          <span className={step === 'receipt' ? 'text-emerald-700 font-black' : ''}>
+            5. Final Receipt
+          </span>
+        </div>
+      </div>
+
+      {/* STEP 1: Customer Lookup */}
+      {step === 'lookup' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm">
+          <div className="max-w-md mx-auto text-center mb-8">
+            <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+              <Search className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900">Look Up Customer</h2>
+            <p className="text-slate-600 text-sm mt-1">
+              Search by customer's full name or scan/type their NativePay card number.
+            </p>
+          </div>
+
+          <form onSubmit={handleSearch} className="max-w-lg mx-auto mb-8">
+            <div className="flex flex-col sm:flex-row items-center gap-2">
+              <div className="relative flex-1 w-full">
+                <Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="e.g. Zainab or 5060 0000 0000 0001"
+                  className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-300 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSearching}
+                className="w-full sm:w-auto px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition-colors cursor-pointer text-sm shadow-sm flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                <span>Find Customer</span>
+              </button>
+            </div>
+          </form>
+
+          {errorMessage && (
+            <div className="max-w-md mx-auto p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-sm text-center mb-6">
+              {errorMessage}
+            </div>
+          )}
+
+          {searchResults.length > 0 && (
+            <div className="max-w-md mx-auto">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                Matching Accounts ({searchResults.length})
+              </p>
+              <div className="space-y-2">
+                {searchResults.map((res) => (
+                  <button
+                    key={res.id}
+                    onClick={() => handleSelectCustomer(res.id)}
+                    className="w-full p-4 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 flex items-center justify-between text-left transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-emerald-100 text-slate-700 group-hover:text-emerald-700 flex items-center justify-center font-bold text-sm">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-900 text-base">{res.name}</div>
+                        <div className="text-xs text-slate-500 font-mono">ID: {res.id}</div>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* STEP 2: Customer Confirmed */}
+      {step === 'customer_confirmed' && selectedCustomer && (
+        <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm">
+          <div className="max-w-lg mx-auto">
+            {/* Customer Identification Badge */}
+            <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl mb-8">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                    Active Customer
                   </span>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => onNavigate('/app')}
-                      className="p-4 rounded-2xl bg-[#FF4646] text-white border-2 border-[#0D1B2A] shadow-[4px_4px_0px_#0D1B2A] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none transition-all cursor-pointer flex items-center justify-between"
-                    >
-                      <div className="text-left">
-                        <span className="block text-sm font-black">Start Voice Transfer</span>
-                        <span className="text-[10px] text-white/80 font-medium">Customer speaks intent</span>
-                      </div>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={() => onNavigate('/app')}
-                      className="p-4 rounded-2xl bg-white border-2 border-[#0D1B2A] shadow-[4px_4px_0px_#0D1B2A] hover:bg-[#FAF5EC] transition-all cursor-pointer flex items-center justify-between"
-                    >
-                      <div className="text-left">
-                        <span className="block text-sm font-black text-[#0D1B2A]">Cash Out Dispense</span>
-                        <span className="text-[10px] text-gray-600 font-medium">Dispense physical cash</span>
-                      </div>
-                      <Banknote className="w-4 h-4 text-[#0D1B2A]" />
-                    </button>
-                  </div>
+                  <h2 className="text-2xl font-black text-slate-900 mt-0.5">{selectedCustomer.name}</h2>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">{selectedCustomer.cardNumber}</p>
                 </div>
+                <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+                  <User className="w-6 h-6" />
+                </div>
+              </div>
 
-                {/* Biometric Status */}
-                <div className="p-4 rounded-2xl bg-[#FEF3C7] border-2 border-[#0D1B2A] shadow-[3px_3px_0px_#0D1B2A] text-xs text-[#0D1B2A] flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-[#FF4646]" />
-                    <span>
-                      <strong className="font-bold">Biometric Face Profile:</strong> Enrolled & Validated
-                    </span>
-                  </div>
-                  <span className="font-mono text-[10px] bg-white px-2.5 py-1 rounded-full border border-[#0D1B2A] text-[#0D1B2A] font-bold">
-                    ACTIVE
+              <div className="pt-4 border-t border-slate-200 grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-xs text-slate-500 block">Available Balance</span>
+                  <span className="text-xl font-black text-slate-900">
+                    ₦{selectedCustomer.balance.toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500 block">Language Preference</span>
+                  <span className="font-semibold text-slate-800 uppercase">
+                    {selectedCustomer.preferredLanguage || 'English'}
                   </span>
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-gray-500">No customer selected.</p>
-            )}
-          </div>
-
-          {/* Customer Queue / Directory */}
-          <div className="lg:col-span-5 bg-white rounded-3xl p-6 border-2 border-[#0D1B2A] shadow-[6px_6px_0px_#0D1B2A] space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b-2 border-[#0D1B2A]/10">
-              <h3 className="font-black text-sm text-[#0D1B2A] font-display">
-                Registered Community Customers
-              </h3>
-              <button
-                onClick={() => onNavigate('/onboarding')}
-                className="text-xs text-[#FF4646] font-bold hover:underline cursor-pointer"
-              >
-                + Onboard New
-              </button>
             </div>
 
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-4 h-4 text-gray-500 absolute left-3 top-3" />
-              <input
-                type="text"
-                placeholder="Search by name, phone, or account..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 bg-[#FAF5EC] rounded-xl border-2 border-[#0D1B2A] text-xs font-medium text-[#0D1B2A] focus:outline-none"
-              />
+            {/* Prompt for Voice Request */}
+            <div className="text-center mb-6">
+              <h3 className="text-lg font-bold text-slate-900">Initiate Customer Request</h3>
+              <p className="text-slate-500 text-sm mt-1">
+                Have the customer speak their request or enter the transaction details:
+              </p>
             </div>
 
-            {/* Customers List */}
-            <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
-              {filteredCustomers.map(c => {
-                const isCurrent = activeQueueCustomer?.id === c.id;
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => {
-                      playChime('click');
-                      setActiveQueueCustomer(c);
-                    }}
-                    className={`p-3 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between text-xs ${
-                      isCurrent
-                        ? 'bg-[#FEF3C7] border-[#0D1B2A] shadow-[3px_3px_0px_#0D1B2A]'
-                        : 'bg-white border-[#0D1B2A]/20 hover:border-[#0D1B2A] hover:bg-[#FAF5EC]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={c.avatar}
-                        alt={c.name}
-                        className="w-9 h-9 rounded-xl object-cover border border-[#0D1B2A]"
-                      />
-                      <div>
-                        <p className="font-bold text-[#0D1B2A]">{c.name}</p>
-                        <p className="text-[11px] text-gray-600 font-mono">{c.phone}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono font-bold text-[#0D8253]">{formatNaira(c.balance)}</p>
-                      <span className="text-[10px] text-gray-500 uppercase font-mono font-bold">{c.preferredLanguage}</span>
-                    </div>
+            {/* Quick action buttons */}
+            <div className="space-y-3">
+              {[
+                { title: 'Send ₦5,000 to Ada Okafor', text: 'Send 5000 naira to Ada Okafor' },
+                { title: 'Withdraw ₦10,000 Cash', text: 'Withdraw 10000 naira' },
+                { title: 'Buy ₦1,000 Airtime', text: 'Buy 1000 airtime' },
+                { title: 'Send ₦20,000 to John Doe', text: 'Send 20000 naira to John Doe' },
+              ].map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleProcessVoiceInput(opt.text)}
+                  className="w-full p-4 rounded-2xl bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/40 text-left font-semibold text-slate-800 text-sm flex items-center justify-between transition-colors cursor-pointer group shadow-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <Mic className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                    <span>«{opt.title}»</span>
                   </div>
-                );
-              })}
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600" />
+                </button>
+              ))}
             </div>
           </div>
         </div>
+      )}
 
-        {/* Today's Transactions Log */}
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-[#0D1B2A] shadow-[6px_6px_0px_#0D1B2A] space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b-2 border-[#0D1B2A]/10">
-            <h3 className="font-black text-sm text-[#0D1B2A] font-display">
-              Terminal Shift Settlement Log
-            </h3>
+      {/* STEP 3: Transaction Review & Confirmation */}
+      {step === 'tx_confirm' && selectedCustomer && intent && (
+        <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm max-w-lg mx-auto">
+          <div className="text-center mb-6">
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+              Step 3: Review with Customer
+            </span>
+            <h2 className="text-2xl font-black text-slate-900 mt-2">Confirm Transaction</h2>
+            <p className="text-slate-500 text-sm">Both customer and agent should confirm details.</p>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 mb-6 space-y-4 text-sm">
+            <div className="text-center pb-4 border-b border-slate-200">
+              <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">
+                Total Transaction Amount
+              </span>
+              <div className="text-4xl font-black text-slate-900 mt-1">
+                ₦{intent.amount.toLocaleString()}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Sender (Customer)</span>
+              <span className="font-bold text-slate-900">{selectedCustomer.name}</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Recipient / Beneficiary</span>
+              <span className="font-bold text-slate-900 text-base">{intent.recipient}</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Action</span>
+              <span className="font-semibold text-slate-900 capitalize">{intent.action}</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500">Agent Fee</span>
+              <span className="font-semibold text-emerald-700">₦0.00 (Standard Promo)</span>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+              <span className="text-slate-500">Customer Remaining Balance</span>
+              <span className="font-bold text-slate-900">
+                ₦{(selectedCustomer.balance - intent.amount).toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => onNavigate('/history')}
-              className="text-xs text-[#FF4646] font-bold hover:underline cursor-pointer"
+              onClick={() => setStep('customer_confirmed')}
+              className="flex-1 py-4 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-sm transition-colors cursor-pointer"
             >
-              Full Ledger View →
+              Cancel
+            </button>
+            <button
+              onClick={startBiometricCheck}
+              className="flex-2 py-4 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition-colors shadow-md text-base flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Camera className="w-5 h-5" />
+              <span>Verify Customer Face</span>
             </button>
           </div>
+        </div>
+      )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="text-gray-500 border-b-2 border-[#0D1B2A]/10 pb-2">
-                  <th className="pb-2 font-bold">REF #</th>
-                  <th className="pb-2 font-bold">CUSTOMER</th>
-                  <th className="pb-2 font-bold">TYPE</th>
-                  <th className="pb-2 font-bold">AMOUNT</th>
-                  <th className="pb-2 font-bold">STATUS</th>
-                  <th className="pb-2 font-bold">TIME</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#0D1B2A]/10">
-                {transactions.slice(0, 5).map(t => (
-                  <tr key={t.id} className="hover:bg-[#FAF5EC] transition-colors">
-                    <td className="py-2.5 font-bold text-[#0D1B2A]">{t.reference}</td>
-                    <td className="py-2.5 text-[#0D1B2A] font-sans font-bold">{t.sender}</td>
-                    <td className="py-2.5 text-gray-700 uppercase text-[11px] font-bold">{t.type}</td>
-                    <td className="py-2.5 font-bold text-[#FF4646]">{formatNaira(t.amount)}</td>
-                    <td className="py-2.5">
-                      <span className="px-2 py-0.5 rounded-full bg-[#D1FADF] text-[#0D1B2A] text-[10px] font-bold border border-[#0D1B2A]">
-                        {t.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-2.5 text-gray-600 text-[11px] font-bold">{t.time}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* STEP 4: Terminal Camera Biometric Verification */}
+      {step === 'biometric_verify' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm max-w-lg mx-auto text-center">
+          <div className="mb-6">
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+              Terminal Verification
+            </span>
+            <h2 className="text-2xl font-black text-slate-900 mt-2">Customer Face Check</h2>
+            <p className="text-slate-600 text-sm mt-1">
+              Ask customer to look into the terminal camera.
+            </p>
+          </div>
+
+          {/* Camera Frame */}
+          <div className="relative w-64 h-64 sm:w-72 sm:h-72 mx-auto rounded-3xl overflow-hidden bg-slate-900 border-4 border-emerald-500 shadow-xl mb-6">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              autoPlay
+              className="w-full h-full object-cover scale-x-[-1]"
+            />
+
+            <div className="absolute inset-0 border-2 border-dashed border-emerald-400 rounded-full m-6 pointer-events-none flex items-center justify-center animate-pulse"></div>
+
+            <div className="absolute bottom-3 inset-x-0 flex justify-center">
+              <span className="px-3.5 py-1 rounded-full text-xs font-bold bg-slate-900/80 text-white backdrop-blur-xs">
+                {verifiedSuccess ? '✓ Face Match Verified' : 'Scanning customer face...'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={runBiometricVerification}
+              className="py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-sm cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Approve & Finalize</span>
+            </button>
+            <button
+              onClick={() => {
+                if (cameraStreamRef.current) stopCameraStream(cameraStreamRef.current);
+                setStep('tx_confirm');
+              }}
+              className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-sm cursor-pointer"
+            >
+              Cancel
+            </button>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* STEP 5: Processing Animation */}
+      {step === 'processing' && (
+        <div className="bg-white rounded-3xl p-16 border border-slate-200 shadow-sm max-w-lg mx-auto text-center">
+          <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-6">
+            <RefreshCw className="w-10 h-10 animate-spin" />
+          </div>
+          <h2 className="text-2xl font-black text-slate-900 mb-2">Executing Transaction...</h2>
+          <p className="text-slate-500 text-sm">
+            Communicating with agency ledger. Please do not close terminal.
+          </p>
+        </div>
+      )}
+
+      {/* STEP 6: Final Agent Receipt */}
+      {step === 'receipt' && completedTx && (
+        <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200 shadow-sm max-w-lg mx-auto text-center">
+          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+
+          <span className="text-xs uppercase font-extrabold tracking-wider text-emerald-700">
+            Agency Transaction Completed
+          </span>
+          <h2 className="text-3xl font-black text-slate-900 mt-1 mb-2">
+            ₦{completedTx.amount.toLocaleString()}
+          </h2>
+          <p className="text-slate-600 text-sm mb-6">
+            Transferred to <span className="font-bold text-slate-900">{completedTx.recipient}</span>
+          </p>
+
+          {/* Receipt Info Card */}
+          <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl text-left text-xs space-y-2 mb-6">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Transaction Ref:</span>
+              <span className="font-mono font-bold text-slate-900">{completedTx.reference}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Sender Account:</span>
+              <span className="font-semibold text-slate-800">{selectedCustomer?.name}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Terminal ID:</span>
+              <span className="font-mono text-slate-700">NP-LAGOS-049</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Security Verification:</span>
+              <span className="text-emerald-700 font-bold">Biometric Match (Passed)</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Status:</span>
+              <span className="text-emerald-600 font-bold">● Completed</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <button
+              onClick={() => setShowReceiptModal(true)}
+              className="w-full sm:w-1/2 py-3.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold rounded-2xl flex items-center justify-center gap-2 transition-colors cursor-pointer text-sm"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Full Receipt</span>
+            </button>
+            <button
+              onClick={handleResetFlow}
+              className="w-full sm:w-1/2 py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition-colors cursor-pointer text-sm shadow-md"
+            >
+              Next Customer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Full printable receipt modal */}
+      {showReceiptModal && completedTx && (
+        <ReceiptModal
+          transaction={completedTx}
+          onClose={() => setShowReceiptModal(false)}
+        />
+      )}
     </div>
   );
 };

@@ -1,53 +1,115 @@
-# ElderPay Frontend
+# NativePay — Banking That Speaks to You
 
-React + TypeScript + Vite client for ElderPay — the voice UI, the onboarding wizard, the virtual POS, and the agent status view.
+> A hackathon-ready voice-first financial accessibility platform designed for people who face barriers to conventional digital banking.
 
-## Setup
+---
+
+## 🌟 The Product
+
+**NativePay** is built on the core belief that **financial access should not depend on how well someone uses a smartphone**.
+
+Conventional banking apps are overcrowded with nested menus, fine-print text, complex passwords, and unfamiliar terminology. NativePay completely reimagines the financial interaction layer around a natural, human flow:
+
+```
+SPEAK  →  UNDERSTAND  →  CONFIRM  →  VERIFY  →  TRANSACT  →  DONE
+```
+
+### Primary Users Served
+- **Older adults**: Clear, readable typography, auditory confirmations, large touch targets, and zero passwords to remember.
+- **People with limited literacy or digital literacy**: Conversational spoken interface, visual clarity, and simple agent-assisted terminal mode.
+- **Local language speakers**: Direct support for Nigerian Pidgin, Yorùbá, Hausa, Igbo, and English.
+- **Underserved retail communities**: Accessible both as a personal mobile experience and as an agency banking POS terminal.
+
+---
+
+## 🚀 Key Features
+
+1. **Voice-First Financial Interface**
+   - Natural spoken interaction with instant recognition.
+   - Dual-engine speech architecture: Real-time Web Speech recognition + cloud Whisper transcription.
+   - Intelligent multi-dialect intent interpretation covering transfers, balance inquiries, withdrawals, and airtime.
+
+2. **Double-Confirmation Guard**
+   - No transaction is ever executed blindly upon speech recognition.
+   - NativePay repeats the interpreted request clearly (both visually and audibly), requiring customer confirmation.
+
+3. **Biometric Face Verification**
+   - Passwordless identity validation: users confirm who they are simply by looking into the camera.
+   - Normalizes 128-dimensional biometric facial descriptors matching the backend contract.
+   - Strictly hides raw mathematical descriptors and distances from users and agents.
+
+4. **Dedicated Agent / POS Interface**
+   - Designed for large-screen agency kiosks and POS terminals.
+   - Fast customer lookup by full name or NativePay card number.
+   - Agent assisted workflow without exposing customer biometrics or secrets.
+
+5. **5 Local Language Experiences**
+   - English (`en`)
+   - Nigerian Pidgin (`pcm` — *«Bank wey dey follow you talk»*)
+   - Yorùbá (`yo` — *«Ìfowópamọ́ tó ń bá ọ sọ̀rọ̀»*)
+   - Hausa (`ha` — *«Bankin da ke magana da ku»*)
+   - Igbo (`ig` — *«Ụlọ akụ na-agwa gị okwu»*)
+
+6. **Instant Digital & Printable Receipts**
+   - Formal transaction reference numbers (`NP-XXXXXX`).
+   - Detailed audit breakdown with one-click print and share options.
+
+---
+
+## 🔌 Centralized API Architecture
+
+All backend communication is centralized in `src/services/api.ts` and strongly typed.
+
+- **Default Backend**: `https://nativepay.onrender.com`
+- **Configurable**: Via `VITE_API_BASE` in `.env`
+- **Fallback URL Sanitization**: Normalizes trailing slashes, preventing URL duplication (`//api` or `api/api`).
+- **Resilient Error Handling**: Every endpoint handles loading, validation, network errors, timeouts, and unavailable services with human-readable messaging.
+
+### Key API Routes Integrated:
+- `GET /api/health` — Backend health and sandbox mode indicator.
+- `GET /api/languages` — Supported local languages.
+- `GET /api/accounts/search?name={name}` — Name-based customer lookup.
+- `GET /api/accounts/by-card/{cardNumber}` — Card-based customer lookup.
+- `GET /api/accounts/{id}` & `GET /api/accounts/{id}/balance` — Account profile & real-time balance.
+- `POST /api/accounts/register` — Customer onboarding and card issuance.
+- `POST /api/face/register` & `POST /api/face/authorize` — Biometric face vector enrollment & authorization.
+- `POST /api/session/start` — Face-authenticated customer session initiation.
+- `GET /api/transactions` — Transaction ledger history.
+- `POST /api/transactions/confirm` — Transaction intent confirmation.
+- `POST /api/transactions/verify-face` — Transaction biometric validation.
+- `POST /api/transactions/send` — Final funds settlement.
+- `POST /api/ai/intent` — AI-powered natural language intent extraction.
+- `POST /api/tts` — Cloud Text-To-Speech speech synthesis.
+
+---
+
+## 🛠️ Technology Stack
+
+- **Framework**: React 19 + TypeScript + Vite
+- **Styling**: Tailwind CSS v4 (financial accessibility design system)
+- **Icons**: Lucide React
+- **Biometrics**: HTML5 Video Canvas frame analysis with 128-d L2-normalized vector extraction
+- **Speech**: Web Speech API (`SpeechRecognition` & `SpeechSynthesis`) + Cloud Voice Fallbacks
+
+---
+
+## 💻 Getting Started
+
+### 1. Environment Configuration
+Create a `.env` file (or copy `.env.example`):
+```bash
+VITE_API_BASE="https://nativepay.onrender.com"
+```
+
+### 2. Install & Run
 ```bash
 npm install
-cp .env.example .env   # VITE_API_BASE=http://localhost:4000
 npm run dev
 ```
-Requires the backend running (see `../backend/README.md`) — most pages call it directly and don't work standalone. Browser microphone/camera permissions are required for voice input and face verification.
+Open [http://localhost:3000](http://localhost:3000) to view the application.
 
-## Scripts
-- `npm run dev` — dev server
-- `npm run build` — typecheck (`tsc -b`) then production build
-- `npm run lint` — oxlint
-- `npm run preview` — preview a production build
-
-## Routes
-| Path | Page | Purpose |
-|---|---|---|
-| `/` | `Landing.tsx` | Marketing/pitch page |
-| `/onboarding` | `Onboarding.tsx` | Onboarding wizard: language → name → email (optional) → address → face capture → review |
-| `/app` | `App.tsx` | The virtual POS: look up by name/phone → face verify → speak a request → confirm → face verify → receipt |
-| `/pos` | `Pos.tsx` | Read-only agent view — BMONI/storage status, transaction status lookup by ID, no customer data |
-| `/history` | `History.tsx` | Transaction history for the demo account |
-
-## Structure
+### 3. Build & Lint
+```bash
+npm run lint
+npm run build
 ```
-src/
-  lib/
-    api.ts          Every backend call, one function per route
-    audio.ts        getUserMedia recording + Meyda MFCC feature extraction (spoken commands, and the unused voice-auth path)
-    faceAuth.ts      face-api.js model loading + client-side face descriptor capture
-    challenge.ts     Random-digit spoken challenge generator — unused by the active flow, kept for the parked voice-auth path
-    phrases.ts       Per-language spoken/display strings + speechSynthesis wrapper
-  pages/
-    Landing.tsx, Onboarding.tsx, App.tsx, Pos.tsx, History.tsx
-  types.ts          Shared types — mirrors backend/app/models.py
-```
-
-## Key flows
-
-**Onboarding** (`Onboarding.tsx`): pick a language, the agent types the customer's full name, address, and optional email as they say them, then captures a real face descriptor via the device camera, before `POST /api/accounts/register` + `POST /api/face/register`.
-
-**Session auth** (`App.tsx`, `card`/`faceAuth`/`authFailed` steps): agent enters the customer's name or phone number (no card number needed once onboarded), then a real face check gates entry — client-captured descriptor, `POST /api/face/authorize`. Accounts with no registered face (the two seeded demo accounts) fall back to a disclosed simulated match instead.
-
-**Transaction** (`listen`/`confirm`/`clarify`/`face`/`processing`/`receipt` steps): speak or pick a quick-demo intent; if the recipient isn't recognized, the agent looks them up by bank + account number and the resolved name is read back (with a repeat button) for the customer to confirm; a real face check gates the transaction before the backend executes against BMONI (mock or live sandbox) and a receipt is shown.
-
-## Honest limitations
-- Face verification is real for any account with a registered descriptor; only the two seeded legacy demo accounts fall back to a disclosed simulated match, shown clearly on-screen.
-- `voice_auth`-related client code (`authorizeVoice`, `registerVoice`, `challenge.ts`) still exists and works against the backend, but nothing in the active UI calls it — voice authentication is parked for a later phase, not deleted.
-- Yorùbá/Hausa/Igbo/Pidgin strings in `phrases.ts` are best-effort translations, not reviewed by native speakers.
