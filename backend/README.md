@@ -7,7 +7,7 @@ FastAPI service backing the NativePay frontend: speech-to-text + intent parsing,
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env             # fill in GROQ_API_KEY at minimum
+cp .env.example .env             # fill in OPENAI_API_KEY (primary) and GROQ_API_KEY (fallback) at minimum
 uvicorn app.main:app --reload --port 4000
 ```
 Runs on `http://localhost:4000`. Visit `http://localhost:4000/docs` for the auto-generated Swagger UI.
@@ -110,7 +110,7 @@ The routes below are granular per-step testing utilities over the raw BMONI API 
 There's no BMONI endpoint for arbitrary P2P "send" or an NGN-only deposit (only card/crypto deposit exist), so this app's send/deposit/airtime actions keep using its own balance bookkeeping — matching the quick-start doc's note that sandbox wallets are funded manually by BMONI staff, not via API.
 
 ### Health
-`/api/health` — `{ok, environment, demoMode, bmoniMockMode, dbConnected, authRequired}`
+`/api/health` — `{ok, environment, demoMode, bmoniMockMode, aiProvider, dbConnected, authRequired}`
 
 ## Structure
 ```
@@ -118,7 +118,9 @@ app/
   main.py                    FastAPI routes
   models.py                  Pydantic models (mirrors frontend/src/types.ts)
   services/
-    groq_service.py            Whisper STT (speech-in) + LLM intent parsing
+    groq_service.py            Whisper STT + LLM intent parsing via Groq — the fallback provider (see ai_provider.py)
+    openai_service.py          Same job via OpenAI (gpt-4o-transcribe + gpt-5-mini) — the primary provider
+    ai_provider.py              Tries OpenAI first, falls back to Groq automatically on missing config or a failed call
     yarngpt_service.py         YarnGPT TTS (speech-out) — Nigerian-accented read-back voice
     bmoni_service.py           Real BMONI sandbox integration (mock fallback) — money movement AND bank-account name-enquiry (recipient resolution); Paystack was dropped in favor of consolidating on one provider
     transaction_service.py     State machine, server-side validation
@@ -132,8 +134,8 @@ tests/
 ```
 
 ## Notes
-- Voice is two separate real integrations, not one: **Whisper** (via the official `groq` SDK, `whisper-large-v3-turbo`) transcribes what the user says (speech-in); **YarnGPT** synthesizes the Nigerian-accented voice that reads confirmations/balances back (speech-out). Requires real `GROQ_API_KEY` / `YARNGPT_API_KEY` respectively — without them, `/api/voice/process` or `/api/tts` fail (the frontend falls back to `speechSynthesis` for TTS, and surfaces STT failures as a network error rather than crashing).
-- `openai/gpt-oss-120b` (also via Groq) does intent parsing from the transcribed text.
+- Voice is two separate real integrations, not one: **speech-to-text + intent parsing** (via `ai_provider.py` — OpenAI primary, Groq fallback, see below) transcribes what the user says and extracts the transaction intent; **YarnGPT** synthesizes the Nigerian-accented voice that reads confirmations/balances back (speech-out). Requires at least one of `OPENAI_API_KEY`/`GROQ_API_KEY`, plus `YARNGPT_API_KEY` for TTS — without them, `/api/voice/process` or `/api/tts` fail (the frontend falls back to `speechSynthesis` for TTS, and surfaces STT failures as a network error rather than crashing).
+- **STT + intent parsing provider fallback** (`app/services/ai_provider.py`): OpenAI (`gpt-4o-transcribe` for transcription, `gpt-5-mini` for intent extraction) is tried first. Groq (`whisper-large-v3` + `openai/gpt-oss-120b`) is used automatically whenever `OPENAI_API_KEY` isn't set, or whenever a live OpenAI call raises (timeout, rate limit, outage) — logged as a warning, not surfaced as an error, since the whole point is that the caller shouldn't notice. `/api/health`'s `aiProvider` field reports which one is configured as primary (not which one served the last request). `main.py` always calls `ai_provider`, never `groq_service`/`openai_service` directly, so this fallback can't accidentally be bypassed.
 - BMONI calls use `httpx.AsyncClient` against the real sandbox (`x-api-key` auth, no `/v1` appended to the base URL) once `BMONI_API_KEY`/`BMONI_OWNER_PRIVATE_KEY` are set; `bmoniMockMode` in `/api/health` reflects that. The self-custodied wallet's owner-proof challenge is signed with `eth_account` (EIP-191), and Nigeria bank withdrawals are signed with EIP-712 typed data — both since this backend has no Flutter/React Native SDK access. P2P send and NGN deposit have no corresponding BMONI endpoint, so those stay on this app's own balance bookkeeping.
 - Pydantic (`models.py`) validates request bodies — malformed shapes get a 422 automatically.
 - CORS is open (`allow_origins=["*"]`) whenever `FRONTEND_ORIGIN` is unset, for local-dev convenience — `ENVIRONMENT=production` requires `FRONTEND_ORIGIN` and refuses to start without it (see the Security/production-settings section above).

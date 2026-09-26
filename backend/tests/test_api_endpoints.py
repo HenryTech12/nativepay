@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.models import ParsedIntent
-from app.services import bmoni_service, config, face_auth, groq_service, sessions, store, voice_auth, yarngpt_service
+from app.services import bmoni_service, config, face_auth, groq_service, openai_service, sessions, store, voice_auth, yarngpt_service
 from tests.conftest import make_face_descriptor, make_voiceprint
 
 FAKE_RESOLVED_NAMES = {"0123456789": "ADEWALE OKONKWO", "9876543210": "NGOZI EZE"}
@@ -79,6 +79,7 @@ def test_health(client):
     body = resp.json()
     assert body["ok"] is True
     assert body["bmoniMockMode"] is True
+    assert body["aiProvider"] == "groq"  # no OPENAI_API_KEY configured in the test env
     assert "environment" in body and "authRequired" in body
 
 
@@ -143,6 +144,85 @@ def test_ai_intent(client):
     resp = client.post("/api/ai/intent", json={"text": "send five thousand naira to adewale"})
     assert resp.status_code == 200
     assert resp.json()["action"] == "send"
+
+
+# ---------------------------------------------------------------------------
+# AI provider fallback (P0-ish resilience: OpenAI primary, Groq fallback)
+# ---------------------------------------------------------------------------
+
+async def _fake_openai_transcribe(audio_bytes, filename, language_hint=None):
+    return "OPENAI TRANSCRIPT"
+
+
+async def _fake_openai_parse_intent(text):
+    return ParsedIntent(action="balance", amount=None, recipient=None, confidence=0.99)
+
+
+def test_health_reports_configured_ai_provider(client, monkeypatch):
+    monkeypatch.setattr(openai_service, "is_configured", lambda: False)
+    assert client.get("/api/health").json()["aiProvider"] == "groq"
+
+    monkeypatch.setattr(openai_service, "is_configured", lambda: True)
+    assert client.get("/api/health").json()["aiProvider"] == "openai"
+
+
+def test_ai_provider_uses_openai_when_configured_and_healthy(client, monkeypatch):
+    monkeypatch.setattr(openai_service, "is_configured", lambda: True)
+    monkeypatch.setattr(openai_service, "transcribe_audio", _fake_openai_transcribe)
+    monkeypatch.setattr(openai_service, "parse_intent", _fake_openai_parse_intent)
+
+    transcribed = client.post("/api/transcribe", files={"audio": ("clip.webm", b"x", "audio/webm")})
+    assert transcribed.json() == {"text": "OPENAI TRANSCRIPT"}
+
+    intent = client.post("/api/ai/intent", json={"text": "anything"})
+    assert intent.json()["action"] == "balance"
+    assert intent.json()["confidence"] == 0.99
+
+
+def test_ai_provider_falls_back_to_groq_when_openai_raises(client, monkeypatch):
+    """Core of the requested behavior: OpenAI is configured (so it's
+    tried first) but errors out — Groq's mocked response (from the
+    autouse mock_external_services fixture) is what the caller actually
+    gets back, transparently."""
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("OpenAI is down")
+
+    monkeypatch.setattr(openai_service, "is_configured", lambda: True)
+    monkeypatch.setattr(openai_service, "transcribe_audio", _boom)
+    monkeypatch.setattr(openai_service, "parse_intent", _boom)
+
+    transcribed = client.post("/api/transcribe", files={"audio": ("clip.webm", b"x", "audio/webm")})
+    assert transcribed.status_code == 200
+    assert transcribed.json() == {"text": "send five thousand naira to adewale"}  # groq's mocked value
+
+    intent = client.post("/api/ai/intent", json={"text": "anything"})
+    assert intent.status_code == 200
+    assert intent.json()["action"] == "send"  # groq's mocked value, not the openai one
+
+
+def test_ai_provider_uses_groq_directly_when_openai_not_configured(client, monkeypatch):
+    monkeypatch.setattr(openai_service, "is_configured", lambda: False)
+    # If this accidentally called OpenAI it would blow up (no real key) —
+    # reaching groq's mocked value at all proves the "not configured"
+    # branch skipped OpenAI entirely rather than attempting and catching.
+    resp = client.post("/api/transcribe", files={"audio": ("clip.webm", b"x", "audio/webm")})
+    assert resp.json() == {"text": "send five thousand naira to adewale"}
+
+
+def test_ai_provider_full_failure_still_surfaces_as_network_error(client, monkeypatch):
+    """If OpenAI is configured but down AND Groq also fails, the caller
+    should see a real error, not a silently wrong/empty result."""
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(openai_service, "is_configured", lambda: True)
+    monkeypatch.setattr(openai_service, "transcribe_audio", _boom)
+    monkeypatch.setattr(groq_service, "transcribe_audio", _boom)
+
+    resp = client.post("/api/transcribe", files={"audio": ("clip.webm", b"x", "audio/webm")})
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["error"] == "NETWORK_ERROR"
 
 
 # ---------------------------------------------------------------------------

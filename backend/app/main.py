@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Respons
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.services import bmoni_service, config, db, face_auth, groq_service, sessions, store, transaction_service, voice_auth, yarngpt_service
+from app.services import ai_provider, bmoni_service, config, db, face_auth, sessions, store, transaction_service, voice_auth, yarngpt_service
 from app.services.languages import supported_languages
 from app.services.transaction_service import STATES
 
@@ -51,6 +51,7 @@ def health():
         "environment": config.ENVIRONMENT,
         "demoMode": not config.IS_PRODUCTION,
         "bmoniMockMode": bmoni_service.is_mock_mode(),
+        "aiProvider": ai_provider.active_provider(),
         "dbConnected": db.is_ready(),
         "authRequired": config.REQUIRE_AUTH,
     }
@@ -134,8 +135,8 @@ async def tts(body: TtsBody):
 async def voice_process(audio: UploadFile = File(...), language: Optional[str] = Form(None)):
     try:
         audio_bytes = await audio.read()
-        text = await groq_service.transcribe_audio(audio_bytes, audio.filename, language)
-        intent = await groq_service.parse_intent(text)
+        text = await ai_provider.transcribe_audio(audio_bytes, audio.filename, language)
+        intent = await ai_provider.parse_intent(text)
         return {"text": text, "intent": intent.model_dump()}
     except Exception as err:
         logger.error("voice_process failed: %s", err, exc_info=True)
@@ -146,7 +147,7 @@ async def voice_process(audio: UploadFile = File(...), language: Optional[str] =
 async def transcribe(audio: UploadFile = File(...), language: Optional[str] = Form(None)):
     try:
         audio_bytes = await audio.read()
-        text = await groq_service.transcribe_audio(audio_bytes, audio.filename, language)
+        text = await ai_provider.transcribe_audio(audio_bytes, audio.filename, language)
         return {"text": text}
     except Exception as err:
         logger.error("transcribe failed: %s", err, exc_info=True)
@@ -160,7 +161,7 @@ class IntentTextBody(BaseModel):
 @app.post("/api/ai/intent")
 async def ai_intent(body: IntentTextBody):
     try:
-        return (await groq_service.parse_intent(body.text)).model_dump()
+        return (await ai_provider.parse_intent(body.text)).model_dump()
     except Exception as err:
         logger.error("ai_intent failed: %s", err, exc_info=True)
         raise HTTPException(status_code=500, detail={"error": "NETWORK_ERROR", "message": str(err)})
