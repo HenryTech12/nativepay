@@ -722,7 +722,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
                 Your account balance has not been charged by NativePay.
               </p>
 
-              <div className="flex flex-col sm:flex-row items-center gap-3">
+              <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
                 <button
                   onClick={() => {
                     setVoiceState('idle');
@@ -739,6 +739,25 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
                 >
                   Go Home
                 </button>
+              </div>
+
+              {/* Quick 1-tap options directly on error screen */}
+              <div className="pt-4 border-t border-slate-100 text-left">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5">
+                  Or tap an option directly:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {samplePrompts.map((prompt, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => processTextQuery(prompt)}
+                      className="p-3 text-xs sm:text-sm font-medium text-slate-700 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 border border-slate-200 rounded-xl transition-colors text-left flex items-center justify-between cursor-pointer"
+                    >
+                      <span>{prompt}</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
