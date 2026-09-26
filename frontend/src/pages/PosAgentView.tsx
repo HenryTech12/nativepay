@@ -129,8 +129,6 @@ export const PosAgentView: React.FC = () => {
   const handleProcessVoiceInput = (rawText: string) => {
     setVoiceText(rawText);
     const parsed = parseFinancialIntent(rawText);
-    setIntent(parsed);
-    setStep('tx_confirm');
 
     // Prioritize customer language above all, then UI language
     const { phrases, langCode } = getPhrases(
@@ -138,12 +136,30 @@ export const PosAgentView: React.FC = () => {
       selectedLanguage.code
     );
 
+    // Never proceed to the confirm screen with a fabricated amount/recipient
+    // -- ask the agent to clarify instead (mirrors the customer-facing
+    // VoiceAssistantModal's guard).
+    if (parsed.needsClarification === 'amount') {
+      setErrorMessage(phrases.askAmount);
+      speakText(phrases.askAmount, langCode);
+      return;
+    }
+    if (parsed.needsClarification === 'recipient') {
+      setErrorMessage(phrases.askRecipient);
+      speakText(phrases.askRecipient, langCode);
+      return;
+    }
+
+    setErrorMessage('');
+    setIntent(parsed);
+    setStep('tx_confirm');
+
     let summaryText = '';
-    if (parsed.action === 'transfer') {
+    if (parsed.action === 'transfer' && parsed.amount !== null && parsed.recipient) {
       summaryText = phrases.transferConfirm(parsed.amount, parsed.recipient);
-    } else if (parsed.action === 'withdraw') {
+    } else if (parsed.action === 'withdraw' && parsed.amount !== null) {
       summaryText = phrases.withdrawConfirm(parsed.amount);
-    } else if (parsed.action === 'airtime') {
+    } else if (parsed.action === 'airtime' && parsed.amount !== null && parsed.recipient) {
       summaryText = phrases.airtimeConfirm(parsed.amount, parsed.recipient);
     } else {
       summaryText = phrases.balanceResponse(selectedCustomer?.balance || 0);
@@ -209,18 +225,20 @@ export const PosAgentView: React.FC = () => {
 
     const txRef = `NP-POS-${Math.floor(100000 + Math.random() * 900000)}`;
     const txId = `tx_pos_${Date.now()}`;
+    const safeAmount = intent.amount ?? 0;
+    const safeRecipient = intent.recipient ?? '';
 
     // Update customer balance locally
     const newTx: Transaction = {
       id: txId,
       userId: selectedCustomer.id,
       action: intent.action,
-      amount: intent.amount,
+      amount: safeAmount,
       recipient: intent.recipient,
       status: 'successful',
       createdAt: new Date().toISOString(),
       reference: txRef,
-      narration: `POS Agent Assisted Transfer to ${intent.recipient}`,
+      narration: `POS Agent Assisted Transfer to ${safeRecipient}`,
       confidence: 0.99,
     };
 
@@ -235,11 +253,11 @@ export const PosAgentView: React.FC = () => {
     );
     let doneMsg = '';
     if (intent.action === 'transfer') {
-      doneMsg = phrases.transferSuccess(intent.amount, intent.recipient, txRef);
+      doneMsg = phrases.transferSuccess(safeAmount, safeRecipient, txRef);
     } else if (intent.action === 'withdraw') {
-      doneMsg = phrases.withdrawSuccess(intent.amount, txRef);
+      doneMsg = phrases.withdrawSuccess(safeAmount, txRef);
     } else if (intent.action === 'airtime') {
-      doneMsg = phrases.airtimeSuccess(intent.amount, intent.recipient, txRef);
+      doneMsg = phrases.airtimeSuccess(safeAmount, safeRecipient, txRef);
     } else {
       doneMsg = phrases.balanceSuccess(selectedCustomer.balance);
     }
@@ -474,7 +492,7 @@ export const PosAgentView: React.FC = () => {
                 Total Transaction Amount
               </span>
               <div className="text-4xl font-black text-slate-900 mt-1">
-                ₦{intent.amount.toLocaleString()}
+                ₦{(intent.amount ?? 0).toLocaleString()}
               </div>
             </div>
 
@@ -501,7 +519,7 @@ export const PosAgentView: React.FC = () => {
             <div className="flex justify-between items-center pt-2 border-t border-slate-200">
               <span className="text-slate-500">Customer Remaining Balance</span>
               <span className="font-bold text-slate-900">
-                ₦{(selectedCustomer.balance - intent.amount).toLocaleString()}
+                ₦{(selectedCustomer.balance - (intent.amount ?? 0)).toLocaleString()}
               </span>
             </div>
           </div>

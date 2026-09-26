@@ -28,13 +28,13 @@ async def transcribe_audio(audio_bytes: bytes, filename: str, language_hint: str
     return await groq_service.transcribe_audio(audio_bytes, filename, language_hint)
 
 
-async def parse_intent(transcript_text: str) -> ParsedIntent:
+async def parse_intent(transcript_text: str, language: str | None = None) -> ParsedIntent:
     if openai_service.is_configured():
         try:
-            return await openai_service.parse_intent(transcript_text)
+            return await openai_service.parse_intent(transcript_text, language)
         except Exception as err:
             logger.warning("OpenAI intent parsing failed (%s) — falling back to Groq", err)
-    return await groq_service.parse_intent(transcript_text)
+    return await groq_service.parse_intent(transcript_text, language)
 
 
 def active_provider() -> str:

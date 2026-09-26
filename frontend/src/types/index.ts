@@ -43,14 +43,22 @@ export interface Transaction {
 
 export interface TransactionIntent {
   action: TransactionAction;
-  amount: number;
-  recipient: string;
+  // Nullable: extraction can genuinely fail to find an amount/recipient in
+  // the spoken command. Callers must check `needsClarification` before
+  // treating amount/recipient as safe to execute against.
+  amount: number | null;
+  recipient: string | null;
   recipientAccount?: string;
   bankName?: string;
   bankCode?: string;
   confidence: number;
   rawText: string;
   suggestedNarration?: string;
+  // Set when the parsed command is missing information required to safely
+  // proceed, or when the recipient couldn't be confidently resolved.
+  needsClarification?: 'amount' | 'recipient' | 'recipient_not_found' | 'recipient_ambiguous';
+  // Populated when needsClarification === 'recipient_ambiguous'.
+  recipientCandidates?: string[];
 }
 
 export type VoiceState =

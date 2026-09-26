@@ -14,6 +14,10 @@ export interface SpokenPhrases {
   balanceSuccess: (balance: number) => string;
   insufficientFunds: (balance: number, requested: number) => string;
   didNotCatch: string;
+  askAmount: string;
+  askRecipient: string;
+  recipientNotFound: (name: string) => string;
+  recipientAmbiguous: (name: string, candidates: string[]) => string;
 }
 
 export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
@@ -32,6 +36,10 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     balanceSuccess: (bal) => `Owó tó kù nínú àkọọ́lẹ̀ yín jẹ́ náírà ${bal.toLocaleString()}.`,
     insufficientFunds: (bal, req) => `Owó kò tó nínú àpò yín. Náírà ${bal.toLocaleString()} ló wà níbẹ̀, ṣùgbọ́n ẹ tọrọ náírà ${req.toLocaleString()}.`,
     didNotCatch: 'Mi ò gbọ́ ọ̀rọ̀ yín dáadáa. Ẹ jọ̀wọ́, ẹ tún sọ̀rọ̀ tàbí kí ẹ yan ọ̀kan nínú àwọn àṣàyàn wọ̀nyí.',
+    askAmount: 'Ẹ jọ̀wọ́, iye owó mélòó ni ẹ fẹ́ fi ránṣẹ́?',
+    askRecipient: 'Ta ni ẹ fẹ́ fi owó ránṣẹ́ sí?',
+    recipientNotFound: (name) => `Mi ò rí ẹnikẹ́ni tí orúkọ rẹ̀ ń jẹ́ ${name}. Ẹ jọ̀wọ́, ẹ ṣàyẹ̀wò orúkọ náà kí ẹ sì tún gbìyànjú.`,
+    recipientAmbiguous: (name, candidates) => `Mo rí ènìyàn ju ọ̀kan lọ tí orúkọ wọn ń jẹ́ ${name}: ${candidates.join(', ')}. Ẹ jọ̀wọ́, ẹ yan ẹni tó tọ́.`,
   },
 
   // Hausa
@@ -49,6 +57,10 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     balanceSuccess: (bal) => `Sauran kudin da ke cikin asusunka naira ${bal.toLocaleString()} ne.`,
     insufficientFunds: (bal, req) => `Kudin asusunka bai isa ba. Kuna da naira ${bal.toLocaleString()}, amma kuna neman naira ${req.toLocaleString()}.`,
     didNotCatch: 'Ban ji abin da kuka ce ba da kyau. Don Allah sake magana ko zabi daya daga cikin wadannan.',
+    askAmount: 'Don Allah, nawa kuke son turawa?',
+    askRecipient: 'Wa kuke son turawa kudin?',
+    recipientNotFound: (name) => `Ban sami wanda ake kira ${name} ba. Don Allah duba sunan kuma a sake gwadawa.`,
+    recipientAmbiguous: (name, candidates) => `Na sami mutane fiye da daya da ake kira ${name}: ${candidates.join(', ')}. Don Allah zabi wanda ya dace.`,
   },
 
   // Igbo
@@ -66,6 +78,10 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     balanceSuccess: (bal) => `Ego fọrọ n'ime akaụntụ gị bụ naira ${bal.toLocaleString()}.`,
     insufficientFunds: (bal, req) => `Ego zuru oke adịghị n'akaụntụ gị. Ị nwere naira ${bal.toLocaleString()}, mana ị rịọrọ naira ${req.toLocaleString()}.`,
     didNotCatch: 'Anụghị m nke ọma. Biko kwuokwa ọzọ ma ọ bụ họrọ otu n\'ime nhọrọ ndị a.',
+    askAmount: 'Biko, ego ole ka ị chọrọ izipu?',
+    askRecipient: 'Ònye ka ị chọrọ izipu ego?',
+    recipientNotFound: (name) => `Achọtaghị m onye a na-akpọ ${name}. Biko lelee aha ahụ ma nwaa ọzọ.`,
+    recipientAmbiguous: (name, candidates) => `Achọtara m ndị karịrị otu a na-akpọ ${name}: ${candidates.join(', ')}. Biko họrọ onye ziri ezi.`,
   },
 
   // Nigerian Pidgin
@@ -83,6 +99,10 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     balanceSuccess: (bal) => `Di balance for your account na ₦${bal.toLocaleString()}.`,
     insufficientFunds: (bal, req) => `Your money no reach. Di money wey dey your account na ₦${bal.toLocaleString()}, but you wan send ₦${req.toLocaleString()}.`,
     didNotCatch: 'I no hear you well well. Abeg talk again or choose one of di options below.',
+    askAmount: 'Abeg, how much you wan send?',
+    askRecipient: 'Who you wan send the money give?',
+    recipientNotFound: (name) => `I no fit find anybody wey dem dey call ${name}. Abeg check di name well and try again.`,
+    recipientAmbiguous: (name, candidates) => `I see pass one person wey dem dey call ${name}: ${candidates.join(', ')}. Abeg choose di correct one.`,
   },
 
   // English (Standard fallback)
@@ -100,6 +120,10 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     balanceSuccess: (bal) => `Your available balance is ₦${bal.toLocaleString()}.`,
     insufficientFunds: (bal, req) => `Insufficient funds. Your available balance is ₦${bal.toLocaleString()}, but you requested ₦${req.toLocaleString()}.`,
     didNotCatch: "I didn't catch that. Please speak again or choose one of the options below.",
+    askAmount: 'How much would you like to send?',
+    askRecipient: 'Who would you like to send the money to?',
+    recipientNotFound: (name) => `I couldn't find ${name}. Please check the name and try again.`,
+    recipientAmbiguous: (name, candidates) => `I found more than one person named ${name}: ${candidates.join(', ')}. Please choose the correct recipient.`,
   },
 };
 

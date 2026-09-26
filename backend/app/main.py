@@ -136,7 +136,7 @@ async def voice_process(audio: UploadFile = File(...), language: Optional[str] =
     try:
         audio_bytes = await audio.read()
         text = await ai_provider.transcribe_audio(audio_bytes, audio.filename, language)
-        intent = await ai_provider.parse_intent(text)
+        intent = await ai_provider.parse_intent(text, language)
         return {"text": text, "intent": intent.model_dump()}
     except Exception as err:
         logger.error("voice_process failed: %s", err, exc_info=True)
@@ -156,12 +156,13 @@ async def transcribe(audio: UploadFile = File(...), language: Optional[str] = Fo
 
 class IntentTextBody(BaseModel):
     text: str
+    language: Optional[str] = None
 
 
 @app.post("/api/ai/intent")
 async def ai_intent(body: IntentTextBody):
     try:
-        return (await ai_provider.parse_intent(body.text)).model_dump()
+        return (await ai_provider.parse_intent(body.text, body.language)).model_dump()
     except Exception as err:
         logger.error("ai_intent failed: %s", err, exc_info=True)
         raise HTTPException(status_code=500, detail={"error": "NETWORK_ERROR", "message": str(err)})
