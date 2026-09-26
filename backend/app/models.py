@@ -70,7 +70,7 @@ class Recipient(BaseModel):
 
 class AgentBmoniProfile(BaseModel):
     """The POS agent's (or platform's) own BMONI identity — not the
-    customer's. Customers only ever have a local ElderPay ledger
+    customer's. Customers only ever have a local NativePay ledger
     balance (Account.balance); the agent is the one real, KYC'd business
     operator whose wallet actually moves money through BMONI when cash
     is dispensed. Onboarded once, shared across every customer session."""

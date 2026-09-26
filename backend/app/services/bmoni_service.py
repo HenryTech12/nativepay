@@ -60,7 +60,7 @@ def _headers() -> dict:
 
 
 def _mock_reference() -> str:
-    return f"EP-MOCK-{int(time.time() * 1000)}-{random.randint(0, 9999)}"
+    return f"NP-MOCK-{int(time.time() * 1000)}-{random.randint(0, 9999)}"
 
 
 def is_mock_mode() -> bool:
@@ -363,10 +363,10 @@ async def get_real_transactions(user_id: str, smart_wallet_id: str) -> dict:
 
 
 async def onboard_full(first_name: str, email: str, phone_number: str, bvn: str = SANDBOX_TEST_BVN) -> dict:
-    """One-time orchestration run at ElderPay account registration:
+    """One-time orchestration run at NativePay account registration:
     create user -> create wallet -> KYC -> activate NGN rail. Each step
     can raise — the caller decides whether a partial failure still lets
-    the local ElderPay account exist (it should; BMONI onboarding is
+    the local NativePay account exist (it should; BMONI onboarding is
     best-effort, never a hard gate on using the rest of the app).
     Returns the identifiers to persist on the local Account so this
     never needs to run again for this user."""
@@ -430,10 +430,10 @@ def generate_receipt(tx: TransactionRecord) -> dict:
     """Labels the receipt by what actually happened to this transaction,
     not by whether BMONI is configured globally — "send"/"deposit"/
     "airtime" always settle on this app's own ledger (see create_transfer's
-    docstring), so their reference is always the local EP-MOCK- one even
+    docstring), so their reference is always the local NP-MOCK- one even
     when real BMONI withdrawals are live. Checking the reference itself
-    avoids a receipt claiming "sandbox-live" next to an EP-MOCK- reference."""
-    is_real = bool(tx.bmoniReference) and not tx.bmoniReference.startswith("EP-MOCK-")
+    avoids a receipt claiming "sandbox-live" next to an NP-MOCK- reference."""
+    is_real = bool(tx.bmoniReference) and not tx.bmoniReference.startswith("NP-MOCK-")
     return {
         "transactionId": tx.id,
         "type": tx.action,

@@ -1,6 +1,6 @@
-# ElderPay Backend
+# NativePay Backend
 
-FastAPI service backing the ElderPay frontend: speech-to-text + intent parsing, the transaction state machine, face-based auth, and account enrollment. Storage is in-memory unless `DATABASE_URL` is set (Postgres); BMONI runs in sandbox mode — built for the NITHUB Innovation Fair Hackathon 2026, not production.
+FastAPI service backing the NativePay frontend: speech-to-text + intent parsing, the transaction state machine, face-based auth, and account enrollment. Storage is in-memory unless `DATABASE_URL` is set (Postgres); BMONI runs in sandbox mode — built for the NITHUB Innovation Fair Hackathon 2026, not production.
 
 ## Setup
 ```bash
@@ -79,7 +79,7 @@ A transaction left unconfirmed/unverified for longer than `TRANSACTION_TTL_SECON
 ### BMONI onboarding + withdrawal (real sandbox, per BMONI's OpenAPI reference)
 Every route below requires `X-Agent-Key` when `AGENT_API_KEY` is set.
 
-BMONI identity belongs to the **POS agent/platform, not the customer** — like real agent-banking networks (OPay, Moniepoint, Paga agents), the agent is the one KYC'd business operator with a real wallet; customers only ever have a local ElderPay ledger balance (`store.accounts`) and never touch BMONI's KYC/SumSub review themselves. That would reintroduce exactly the digital-onboarding friction ElderPay exists to remove.
+BMONI identity belongs to the **POS agent/platform, not the customer** — like real agent-banking networks (OPay, Moniepoint, Paga agents), the agent is the one KYC'd business operator with a real wallet; customers only ever have a local NativePay ledger balance (`store.accounts`) and never touch BMONI's KYC/SumSub review themselves. That would reintroduce exactly the digital-onboarding friction NativePay exists to remove.
 
 Self-custodied smart-wallet flow (run once for the agent, not per customer): create user → create wallet (owner-proof challenge + EIP-191 signature) → KYC (profile PATCH + SumSub activation) → activate NGN rail → read wallet/balance/transactions → withdraw to a real Nigerian bank account (offramp proposal + EIP-712 signature). Runs in mock mode until `BMONI_API_KEY`/`BMONI_OWNER_PRIVATE_KEY` are set.
 

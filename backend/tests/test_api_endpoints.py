@@ -272,7 +272,7 @@ def test_confirm_requires_user_id_for_new_transaction(client):
 
 
 def test_confirm_unknown_transaction_id_404(client):
-    resp = client.post("/api/transactions/confirm", json={"id": "EP-doesnotexist"})
+    resp = client.post("/api/transactions/confirm", json={"id": "NP-doesnotexist"})
     assert resp.status_code == 404
 
 
@@ -301,12 +301,12 @@ def test_cannot_cancel_terminal_transaction(client):
 
 
 def test_cancel_unknown_transaction_404(client):
-    resp = client.post("/api/transactions/EP-doesnotexist/cancel")
+    resp = client.post("/api/transactions/NP-doesnotexist/cancel")
     assert resp.status_code == 404
 
 
 def test_get_unknown_transaction_404(client):
-    resp = client.get("/api/transactions/EP-doesnotexist")
+    resp = client.get("/api/transactions/NP-doesnotexist")
     assert resp.status_code == 404
 
 

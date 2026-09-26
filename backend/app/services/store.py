@@ -41,7 +41,7 @@ def create_transaction_record(
     recipient: Optional[str],
     confidence: Optional[float],
 ) -> TransactionRecord:
-    tx_id = f"EP-{datetime.now(timezone.utc).year}-{random.randint(100000, 999999)}"
+    tx_id = f"NP-{datetime.now(timezone.utc).year}-{random.randint(100000, 999999)}"
     record = TransactionRecord(
         id=tx_id,
         userId=user_id,

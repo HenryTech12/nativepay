@@ -188,7 +188,7 @@ async def test_withdraw_uses_mock_transfer_when_agent_not_bmoni_onboarded():
     result = await ts.execute_transaction(tx.id)
 
     assert result.state == ts.STATES["TRANSACTION_SUCCESS"]
-    assert result.bmoniReference.startswith("EP-MOCK-")
+    assert result.bmoniReference.startswith("NP-MOCK-")
     assert store.get_account("not-onboarded-user").balance == before - 3000
 
 
