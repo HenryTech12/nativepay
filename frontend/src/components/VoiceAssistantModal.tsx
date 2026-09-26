@@ -34,6 +34,7 @@ import {
 } from '../services/biometrics';
 import { api } from '../services/api';
 import { ReceiptModal } from './ReceiptModal';
+import { getPhrases, getActiveLanguageCode } from '../services/localizedVoice';
 
 interface VoiceAssistantModalProps {
   isOpen: boolean;
@@ -53,6 +54,12 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     refreshBalance,
     setViewMode,
   } = useApp();
+
+  // Helper to obtain spoken phrases and resolved language code prioritizing customer account
+  const { phrases, langCode: speechLang } = getPhrases(
+    currentCustomer.preferredLanguage,
+    selectedLanguage.code
+  );
 
   // Primary Voice & Transaction states
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -153,7 +160,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     // Try Speech Recognition for real-time visual streaming words
     if (isSpeechRecognitionSupported()) {
       const stopper = listenToBrowserSpeech(
-        selectedLanguage.code,
+        speechLang,
         (interim) => setInterimText(interim),
         (final) => {
           setTranscript(final);
@@ -184,7 +191,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
         const audioBlob = await recorderRef.current.stop();
         // Send to backend voice process if we have no speech transcript yet
         if (!transcript && audioBlob.size > 0) {
-          const res = await api.processVoice(audioBlob, selectedLanguage.code);
+          const res = await api.processVoice(audioBlob, speechLang);
           if (res.ok && res.data?.transcription) {
             setTranscript(res.data.transcription);
             processSpokenResult(res.data.transcription);
@@ -202,7 +209,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       processSpokenResult(finalText);
     } else {
       setVoiceState('error');
-      setErrorMessage("I didn't catch that. Please speak again or choose one of the options below.");
+      setErrorMessage(phrases.didNotCatch);
     }
   };
 
@@ -230,20 +237,20 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setIntent(parsed);
     setVoiceState('confirming');
 
-    // Spoken feedback for accessible confirmation
+    // Spoken feedback for accessible confirmation in the prioritized customer language
     let spokenConfirmation = '';
     if (parsed.action === 'balance') {
-      spokenConfirmation = `Your available balance is ₦${currentCustomer.balance.toLocaleString()}.`;
+      spokenConfirmation = phrases.balanceResponse(currentCustomer.balance);
     } else if (parsed.action === 'transfer') {
-      spokenConfirmation = `You want to send ₦${parsed.amount.toLocaleString()} to ${parsed.recipient}. Please confirm.`;
+      spokenConfirmation = phrases.transferConfirm(parsed.amount, parsed.recipient);
     } else if (parsed.action === 'withdraw') {
-      spokenConfirmation = `You want to withdraw ₦${parsed.amount.toLocaleString()} in cash. Please confirm.`;
+      spokenConfirmation = phrases.withdrawConfirm(parsed.amount);
     } else if (parsed.action === 'airtime') {
-      spokenConfirmation = `You want to buy ₦${parsed.amount.toLocaleString()} airtime for ${parsed.recipient}. Please confirm.`;
+      spokenConfirmation = phrases.airtimeConfirm(parsed.amount, parsed.recipient);
     }
 
     if (spokenConfirmation) {
-      speakText(spokenConfirmation, selectedLanguage.code);
+      speakText(spokenConfirmation, speechLang);
     }
   };
 
@@ -266,16 +273,17 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     if (intent.amount > currentCustomer.balance) {
       setVoiceState('error');
       setErrorMessage(
-        `Insufficient funds. Your available balance is ₦${currentCustomer.balance.toLocaleString()}, but you requested ₦${intent.amount.toLocaleString()}.`
+        phrases.insufficientFunds(currentCustomer.balance, intent.amount)
       );
+      speakText(phrases.insufficientFunds(currentCustomer.balance, intent.amount), speechLang);
       return;
     }
 
     setVoiceState('verifying');
     setFaceState('camera_loading');
 
-    // Spoken guidance
-    speakText('Please look at the camera to verify your identity.', selectedLanguage.code);
+    // Spoken guidance in customer language
+    speakText(phrases.cameraPrompt, speechLang);
 
     try {
       const stream = await requestCameraStream();
@@ -328,8 +336,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setFaceState('verified');
     stopCamera();
 
-    // Spoken feedback
-    speakText('Identity verified. Processing transaction.', selectedLanguage.code);
+    // Spoken feedback in customer language
+    speakText(phrases.identityVerified, speechLang);
 
     // Proceed to execute transaction
     setTimeout(() => {
@@ -388,11 +396,19 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setIsSubmitting(false);
     setVoiceState('success');
 
-    // Spoken completion
-    speakText(
-      `Transaction successful. ₦${intent.amount.toLocaleString()} sent to ${intent.recipient}. Reference ${txReference}.`,
-      selectedLanguage.code
-    );
+    // Spoken completion in customer language
+    let completionMessage = '';
+    if (intent.action === 'transfer') {
+      completionMessage = phrases.transferSuccess(intent.amount, intent.recipient, txReference);
+    } else if (intent.action === 'withdraw') {
+      completionMessage = phrases.withdrawSuccess(intent.amount, txReference);
+    } else if (intent.action === 'airtime') {
+      completionMessage = phrases.airtimeSuccess(intent.amount, intent.recipient, txReference);
+    } else {
+      completionMessage = phrases.balanceSuccess(currentCustomer.balance);
+    }
+
+    speakText(completionMessage, speechLang);
   };
 
   if (!isOpen) return null;
