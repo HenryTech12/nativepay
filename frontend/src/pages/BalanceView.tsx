@@ -12,6 +12,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { VoiceAssistantModal } from '../components/VoiceAssistantModal';
 import { speakText } from '../services/voice';
+import { getPhrases } from '../services/localizedVoice';
 
 export const BalanceView: React.FC = () => {
   const { currentCustomer, selectedLanguage, setViewMode, refreshBalance } = useApp();
@@ -19,12 +20,13 @@ export const BalanceView: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    // Speak balance on mount for audio accessibility
-    speakText(
-      `Your available balance is ₦${currentCustomer.balance.toLocaleString()}.`,
+    // Speak balance on mount in customer preferred language (or selected UI fallback)
+    const { phrases, langCode } = getPhrases(
+      currentCustomer.preferredLanguage,
       selectedLanguage.code
     );
-  }, [currentCustomer.balance, selectedLanguage.code]);
+    speakText(phrases.balanceResponse(currentCustomer.balance), langCode);
+  }, [currentCustomer.balance, currentCustomer.preferredLanguage, selectedLanguage.code]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

@@ -156,7 +156,14 @@ export const Navbar: React.FC = () => {
                     }`}
                   >
                     <div>
-                      <div className="font-medium">{lang.label}</div>
+                      <div className="flex items-center gap-1.5 font-medium">
+                        <span>{lang.label}</span>
+                        {currentCustomer.preferredLanguage === lang.code && (
+                          <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded">
+                            Customer
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-500">{lang.nativeLabel}</div>
                     </div>
                     {selectedLanguage.code === lang.code && (

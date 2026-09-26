@@ -196,7 +196,7 @@ export function listenToBrowserSpeech(
 }
 
 /**
- * Native audio speech synthesis for high reliability feedback.
+ * Native audio speech synthesis for high reliability feedback in Nigerian languages.
  */
 export function speakText(text: string, languageCode: LanguageCode = 'en'): Promise<void> {
   return new Promise((resolve) => {
@@ -207,15 +207,28 @@ export function speakText(text: string, languageCode: LanguageCode = 'en'): Prom
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95; // slightly slower for accessibility & elderly clarity
+    utterance.rate = 0.92; // comfortable, natural pace for elderly and clarity
     utterance.pitch = 1.0;
 
+    const speechLangMap: Record<LanguageCode, string> = {
+      yo: 'yo-NG',
+      ha: 'ha-NG',
+      ig: 'ig-NG',
+      pcm: 'en-NG',
+      en: 'en-NG',
+    };
+    utterance.lang = speechLangMap[languageCode] || 'en-NG';
+
     const voices = window.speechSynthesis.getVoices();
-    const englishVoice = voices.find(
+    // Prioritize language match, then Nigerian English, then British/US English
+    const matchingVoice = voices.find(
+      (v) => v.lang.toLowerCase().startsWith(languageCode) || v.lang.includes(utterance.lang)
+    ) || voices.find(
       (v) => v.lang.includes('NG') || v.lang.includes('en-GB') || v.lang.includes('en-US')
     );
-    if (englishVoice) {
-      utterance.voice = englishVoice;
+
+    if (matchingVoice) {
+      utterance.voice = matchingVoice;
     }
 
     utterance.onend = () => resolve();

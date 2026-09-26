@@ -20,6 +20,7 @@ import { useApp } from '../context/AppContext';
 import { CustomerAccount, Transaction, TransactionIntent } from '../types';
 import { api } from '../services/api';
 import { parseFinancialIntent, speakText } from '../services/voice';
+import { getPhrases } from '../services/localizedVoice';
 import { requestCameraStream, stopCameraStream, extractFaceDescriptorFromVideo } from '../services/biometrics';
 import { ReceiptModal } from '../components/ReceiptModal';
 
@@ -33,7 +34,7 @@ type PosStep =
   | 'receipt';
 
 export const PosAgentView: React.FC = () => {
-  const { addTransaction } = useApp();
+  const { addTransaction, selectedLanguage } = useApp();
 
   const [step, setStep] = useState<PosStep>('lookup');
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,7 +131,25 @@ export const PosAgentView: React.FC = () => {
     const parsed = parseFinancialIntent(rawText);
     setIntent(parsed);
     setStep('tx_confirm');
-    speakText(`Transaction summary: Send ₦${parsed.amount.toLocaleString()} to ${parsed.recipient}. Please confirm with the customer.`);
+
+    // Prioritize customer language above all, then UI language
+    const { phrases, langCode } = getPhrases(
+      selectedCustomer?.preferredLanguage,
+      selectedLanguage.code
+    );
+
+    let summaryText = '';
+    if (parsed.action === 'transfer') {
+      summaryText = phrases.transferConfirm(parsed.amount, parsed.recipient);
+    } else if (parsed.action === 'withdraw') {
+      summaryText = phrases.withdrawConfirm(parsed.amount);
+    } else if (parsed.action === 'airtime') {
+      summaryText = phrases.airtimeConfirm(parsed.amount, parsed.recipient);
+    } else {
+      summaryText = phrases.balanceResponse(selectedCustomer?.balance || 0);
+    }
+
+    speakText(summaryText, langCode);
   };
 
   // Start Camera for Biometric Verification
@@ -208,6 +227,23 @@ export const PosAgentView: React.FC = () => {
     addTransaction(newTx);
     setCompletedTx(newTx);
     setStep('receipt');
+
+    // Spoken receipt confirmation in customer preferred language
+    const { phrases, langCode } = getPhrases(
+      selectedCustomer?.preferredLanguage,
+      selectedLanguage.code
+    );
+    let doneMsg = '';
+    if (intent.action === 'transfer') {
+      doneMsg = phrases.transferSuccess(intent.amount, intent.recipient, txRef);
+    } else if (intent.action === 'withdraw') {
+      doneMsg = phrases.withdrawSuccess(intent.amount, txRef);
+    } else if (intent.action === 'airtime') {
+      doneMsg = phrases.airtimeSuccess(intent.amount, intent.recipient, txRef);
+    } else {
+      doneMsg = phrases.balanceSuccess(selectedCustomer.balance);
+    }
+    speakText(doneMsg, langCode);
   };
 
   // Reset to initial lookup
