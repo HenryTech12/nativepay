@@ -113,7 +113,7 @@ export function listenToBrowserSpeech(
   recognition.continuous = false;
   recognition.interimResults = true;
 
-  // Language mapping
+  // Language mapping with robust fallbacks for mobile browsers
   const langMap: Record<LanguageCode, string> = {
     en: 'en-NG',
     pcm: 'en-NG',
@@ -124,6 +124,7 @@ export function listenToBrowserSpeech(
   recognition.lang = langMap[languageCode] || 'en-NG';
 
   let hasEnded = false;
+  let lastCapturedText = '';
 
   recognition.onresult = (event: SpeechRecognitionEvent) => {
     let interimText = '';
@@ -138,15 +139,29 @@ export function listenToBrowserSpeech(
       }
     }
 
-    if (interimText) onInterim(interimText.trim());
+    if (interimText) {
+      lastCapturedText = interimText.trim();
+      onInterim(lastCapturedText);
+    }
     if (finalText) {
       hasEnded = true;
-      onFinal(finalText.trim());
+      lastCapturedText = finalText.trim();
+      onFinal(lastCapturedText);
     }
   };
 
   recognition.onerror = (event) => {
     const errorType = event.error || 'speech_recognition_error';
+    // If mobile Chrome fails to recognize language pack (language-not-supported), retry with en-US/en-NG
+    if (errorType === 'language-not-supported' && recognition.lang !== 'en-US') {
+      try {
+        recognition.lang = 'en-US';
+        recognition.start();
+        return;
+      } catch {
+        // ignore
+      }
+    }
     if (errorType === 'no-speech') {
       onError('No speech detected. Please tap and speak clearly.');
     } else if (errorType === 'not-allowed') {
@@ -157,8 +172,9 @@ export function listenToBrowserSpeech(
   };
 
   recognition.onend = () => {
-    if (!hasEnded) {
-      // Completed without final event
+    if (!hasEnded && lastCapturedText) {
+      hasEnded = true;
+      onFinal(lastCapturedText);
     }
   };
 
