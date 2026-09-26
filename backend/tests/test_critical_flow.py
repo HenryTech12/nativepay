@@ -1,7 +1,7 @@
 import pytest
 
 from app.models import AgentBmoniProfile
-from app.services import bmoni_service, db, face_auth, paystack_service, store, voice_auth
+from app.services import bmoni_service, db, face_auth, store, voice_auth
 from app.services import transaction_service as ts
 
 FAKE_RESOLVED_NAMES = {
@@ -10,17 +10,17 @@ FAKE_RESOLVED_NAMES = {
 }
 
 
-async def _fake_resolve_account(account_number, bank_code):
+async def _fake_verify_nigerian_account(user_id, bank_code, account_number):
     name = FAKE_RESOLVED_NAMES.get(account_number)
     if not name:
         raise RuntimeError("Could not resolve account")
-    return {"account_number": account_number, "account_name": name, "bank_id": 1}
+    return {"accountNumber": account_number, "accountName": name, "bankName": "Mock Bank", "bankCode": bank_code}
 
 
 @pytest.fixture(autouse=True)
-def mock_paystack(monkeypatch):
-    """Keeps the suite offline/deterministic — no real Paystack calls in pytest."""
-    monkeypatch.setattr(paystack_service, "resolve_account", _fake_resolve_account)
+def mock_bmoni_verify_account(monkeypatch):
+    """Keeps the suite offline/deterministic — no real BMONI calls in pytest."""
+    monkeypatch.setattr(bmoni_service, "verify_nigerian_account", _fake_verify_nigerian_account)
 
 
 def test_rejects_invalid_amount():

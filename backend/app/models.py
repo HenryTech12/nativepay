@@ -19,7 +19,11 @@ TransactionState = Literal[
     "LOW_AI_CONFIDENCE",
     "TRANSACTION_FAILED",
     "FACE_VERIFICATION_FAILED",
+    "FACE_NOT_ENROLLED",
     "BMONI_API_ERROR",
+    "RECONCILIATION_REQUIRED",
+    "TRANSACTION_EXPIRED",
+    "UNSUPPORTED_ACTION",
 ]
 
 
@@ -43,8 +47,10 @@ class TransactionRecord(BaseModel):
     faceVerified: bool = False
     verificationMethod: Optional[Literal["face", "voice"]] = None
     bmoniReference: Optional[str] = None
+    bmoniSimulated: Optional[bool] = None
     error: Optional[str] = None
     needsClarification: Optional[Literal["amount", "recipient", "accountNumber"]] = None
+    expiresAt: Optional[str] = None
 
 
 class Account(BaseModel):
@@ -84,3 +90,4 @@ class Receipt(BaseModel):
     status: TransactionState
     date: str
     environment: str
+    simulated: bool = True

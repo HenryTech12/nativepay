@@ -18,8 +18,17 @@ from contextlib import contextmanager
 from typing import Iterator, Optional
 
 from app.models import Account, AgentBmoniProfile, TransactionRecord
+from app.services import config
 
 logger = logging.getLogger("nativepay.db")
+
+
+class DatabaseUnavailableError(RuntimeError):
+    """Raised at startup when ENVIRONMENT=production but persistence
+    cannot be established — see init_schema(). Production must never
+    silently fall back to in-memory storage (P0.6): a demo can look
+    healthy while accounts/transactions/biometrics quietly evaporate on
+    every restart."""
 
 _DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 _pool = None
@@ -56,8 +65,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     face_verified BOOLEAN NOT NULL DEFAULT FALSE,
     verification_method TEXT,
     bmoni_reference TEXT,
+    bmoni_simulated BOOLEAN,
     error TEXT,
-    needs_clarification TEXT
+    needs_clarification TEXT,
+    expires_at TEXT
 );
 CREATE TABLE IF NOT EXISTS agent_bmoni_profile (
     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -117,6 +128,11 @@ def init_schema() -> bool:
     either storage mode."""
     global _ready
     if not is_enabled():
+        if config.IS_PRODUCTION:
+            raise DatabaseUnavailableError(
+                "ENVIRONMENT=production requires DATABASE_URL to be set — refusing to start "
+                "with in-memory storage, which loses every account/transaction/biometric on restart."
+            )
         return False
     try:
         with _cursor() as cur:
@@ -128,8 +144,12 @@ def init_schema() -> bool:
             )
         _ready = True
         logger.info("Postgres persistence enabled.")
+    except DatabaseUnavailableError:
+        raise
     except Exception as err:
         _ready = False
+        if config.IS_PRODUCTION:
+            raise DatabaseUnavailableError(f"DATABASE_URL is set but unreachable in production: {err}") from err
         logger.error("Postgres unavailable, falling back to in-memory storage: %s", err)
     return _ready
 
@@ -225,7 +245,8 @@ def get_voiceprint(user_id: str) -> Optional[list[float]]:
 
 _TX_COLUMNS = (
     "id, user_id, action, amount, recipient, recipient_account, confidence, state, "
-    "created_at, face_verified, verification_method, bmoni_reference, error, needs_clarification"
+    "created_at, face_verified, verification_method, bmoni_reference, bmoni_simulated, "
+    "error, needs_clarification, expires_at"
 )
 
 
@@ -234,17 +255,17 @@ def _row_to_transaction(row) -> TransactionRecord:
         id=row[0], userId=row[1], action=row[2], amount=row[3], recipient=row[4],
         recipientAccount=row[5], confidence=row[6], state=row[7], createdAt=row[8],
         faceVerified=row[9], verificationMethod=row[10], bmoniReference=row[11],
-        error=row[12], needsClarification=row[13],
+        bmoniSimulated=row[12], error=row[13], needsClarification=row[14], expiresAt=row[15],
     )
 
 
 def create_transaction(tx: TransactionRecord) -> None:
     with _cursor() as cur:
         cur.execute(
-            f"INSERT INTO transactions ({_TX_COLUMNS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            f"INSERT INTO transactions ({_TX_COLUMNS}) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (tx.id, tx.userId, tx.action, tx.amount, tx.recipient, tx.recipientAccount,
              tx.confidence, tx.state, tx.createdAt, tx.faceVerified, tx.verificationMethod,
-             tx.bmoniReference, tx.error, tx.needsClarification),
+             tx.bmoniReference, tx.bmoniSimulated, tx.error, tx.needsClarification, tx.expiresAt),
         )
 
 
@@ -260,11 +281,41 @@ def update_transaction(tx: TransactionRecord) -> None:
         cur.execute(
             """UPDATE transactions SET action=%s, amount=%s, recipient=%s, recipient_account=%s,
                confidence=%s, state=%s, face_verified=%s, verification_method=%s,
-               bmoni_reference=%s, error=%s, needs_clarification=%s WHERE id=%s""",
+               bmoni_reference=%s, bmoni_simulated=%s, error=%s, needs_clarification=%s,
+               expires_at=%s WHERE id=%s""",
             (tx.action, tx.amount, tx.recipient, tx.recipientAccount, tx.confidence, tx.state,
-             tx.faceVerified, tx.verificationMethod, tx.bmoniReference, tx.error,
-             tx.needsClarification, tx.id),
+             tx.faceVerified, tx.verificationMethod, tx.bmoniReference, tx.bmoniSimulated, tx.error,
+             tx.needsClarification, tx.expiresAt, tx.id),
         )
+
+
+_PATCH_TO_COLUMN = {
+    "action": "action", "amount": "amount", "recipient": "recipient",
+    "recipientAccount": "recipient_account", "confidence": "confidence", "state": "state",
+    "faceVerified": "face_verified", "verificationMethod": "verification_method",
+    "bmoniReference": "bmoni_reference", "bmoniSimulated": "bmoni_simulated",
+    "error": "error", "needsClarification": "needs_clarification", "expiresAt": "expires_at",
+}
+
+
+def compare_and_set_transaction_state(tx_id: str, expected_state: str, **patch) -> Optional[TransactionRecord]:
+    """Atomic claim: `UPDATE ... WHERE id = %s AND state = %s RETURNING ...`
+    fails to match any row (and therefore returns None) if another
+    request already moved the transaction out of expected_state, which
+    is exactly the guarantee execute_transaction needs under concurrent
+    requests hitting multiple app instances/connections."""
+    columns = [_PATCH_TO_COLUMN[k] for k in patch if k in _PATCH_TO_COLUMN]
+    values = [patch[k] for k in patch if k in _PATCH_TO_COLUMN]
+    if not columns:
+        columns, values = ["state"], [expected_state]
+    set_clause = ", ".join(f"{col} = %s" for col in columns)
+    with _cursor() as cur:
+        cur.execute(
+            f"UPDATE transactions SET {set_clause} WHERE id = %s AND state = %s RETURNING {_TX_COLUMNS}",
+            (*values, tx_id, expected_state),
+        )
+        row = cur.fetchone()
+    return _row_to_transaction(row) if row else None
 
 
 def list_transactions(user_id: Optional[str] = None) -> list[TransactionRecord]:

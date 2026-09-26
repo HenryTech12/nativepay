@@ -26,6 +26,25 @@ _face_descriptors: dict[str, list[float]] = {}
 
 THRESHOLD = float(os.environ.get("FACE_MATCH_THRESHOLD", "0.6"))
 
+# face-api.js's 128-d ResNet descriptor is the only shape this backend
+# ever expects; anything else (wrong length, non-finite values) is
+# either a client bug or a spoof attempt, not a real descriptor.
+EXPECTED_DESCRIPTOR_LENGTH = 128
+
+
+class InvalidDescriptorError(ValueError):
+    pass
+
+
+def _validate_descriptor(descriptor: list[float]) -> None:
+    if not isinstance(descriptor, list) or len(descriptor) != EXPECTED_DESCRIPTOR_LENGTH:
+        raise InvalidDescriptorError(
+            f"Face descriptor must be a list of {EXPECTED_DESCRIPTOR_LENGTH} floats, got {len(descriptor) if isinstance(descriptor, list) else type(descriptor).__name__}"
+        )
+    for value in descriptor:
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+            raise InvalidDescriptorError("Face descriptor must contain only finite numbers")
+
 
 def _euclidean_distance(a: list[float], b: list[float]) -> float:
     if len(a) != len(b):
@@ -34,6 +53,7 @@ def _euclidean_distance(a: list[float], b: list[float]) -> float:
 
 
 def register_face(user_id: str, descriptor: list[float]) -> dict:
+    _validate_descriptor(descriptor)
     if db.is_ready():
         db.register_face(user_id, descriptor)
     else:
@@ -48,6 +68,7 @@ def _stored_descriptor(user_id: str) -> Optional[list[float]]:
 
 
 def authorize_by_face(user_id: str, descriptor: list[float]) -> dict:
+    _validate_descriptor(descriptor)
     stored = _stored_descriptor(user_id)
     if stored is None:
         return {"authorized": False, "reason": "no_registered_face"}

@@ -184,6 +184,34 @@ def update_transaction(tx_id: str, **patch) -> Optional[TransactionRecord]:
     return updated
 
 
+def compare_and_set_transaction_state(tx_id: str, expected_state: str, **patch) -> Optional[TransactionRecord]:
+    """Atomic "claim" of a transaction: applies patch (normally a state
+    change) only if the transaction's *current* state still equals
+    expected_state, and reports whether the claim succeeded.
+
+    This is what makes execute_transaction concurrency-safe: two
+    concurrent callers both read state==FACE_VERIFIED, but only one of
+    them can win this compare-and-set, so only one proceeds to call the
+    external payment rail. In in-memory mode this is safe because
+    FastAPI's single-threaded asyncio event loop never runs another
+    coroutine between the read and the write below (no `await` in
+    between); in Postgres mode db.compare_and_set_transaction_state
+    does the same thing with an atomic `UPDATE ... WHERE state = %s`.
+
+    Returns the updated record on success, or None if the transaction
+    doesn't exist or was no longer in expected_state (i.e. someone else
+    already claimed it, or it moved/expired in the meantime).
+    """
+    if db.is_ready():
+        return db.compare_and_set_transaction_state(tx_id, expected_state, **patch)
+    existing = transactions.get(tx_id)
+    if not existing or existing.state != expected_state:
+        return None
+    updated = existing.model_copy(update=patch)
+    transactions[tx_id] = updated
+    return updated
+
+
 def list_transactions(user_id: Optional[str] = None) -> list[TransactionRecord]:
     if db.is_ready():
         return db.list_transactions(user_id)
