@@ -18,6 +18,8 @@ export interface SpokenPhrases {
   askRecipient: string;
   recipientNotFound: (name: string) => string;
   recipientAmbiguous: (name: string, candidates: string[]) => string;
+  micDisabled: string;
+  cameraError: string;
 }
 
 export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
@@ -40,6 +42,8 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     askRecipient: 'Ta ni ẹ fẹ́ fi owó ránṣẹ́ sí?',
     recipientNotFound: (name) => `Mi ò rí ẹnikẹ́ni tí orúkọ rẹ̀ ń jẹ́ ${name}. Ẹ jọ̀wọ́, ẹ ṣàyẹ̀wò orúkọ náà kí ẹ sì tún gbìyànjú.`,
     recipientAmbiguous: (name, candidates) => `Mo rí ènìyàn ju ọ̀kan lọ tí orúkọ wọn ń jẹ́ ${name}: ${candidates.join(', ')}. Ẹ jọ̀wọ́, ẹ yan ẹni tó tọ́.`,
+    micDisabled: 'Kò lè gba ohùn yín nítorí pé a kò fún ẹ̀rọ ìgbóhùnsáfẹ́fẹ́ láàyè. Ẹ jọ̀wọ́, ẹ ṣí i sílẹ̀ nínú ètò ẹ̀rọ ayélujára yín tàbí kí ẹ lo àwọn àṣàyàn tí ó wà nísàlẹ̀.',
+    cameraError: 'A kò lè ṣí kámẹ́rà fún ìdánimọ̀ ojú. Ẹ jọ̀wọ́, ẹ ṣàyẹ̀wò àṣẹ kámẹ́rà yín.',
   },
 
   // Hausa
@@ -61,6 +65,8 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     askRecipient: 'Wa kuke son turawa kudin?',
     recipientNotFound: (name) => `Ban sami wanda ake kira ${name} ba. Don Allah duba sunan kuma a sake gwadawa.`,
     recipientAmbiguous: (name, candidates) => `Na sami mutane fiye da daya da ake kira ${name}: ${candidates.join(', ')}. Don Allah zabi wanda ya dace.`,
+    micDisabled: 'Ba a iya jin muryar ku ba domin an kashe damar amfani da makirifo. Don Allah a kunna shi a saitunan burauzarku ko a yi amfani da zaɓuɓɓukan da ke ƙasa.',
+    cameraError: 'Ba a iya buɗe kyamara don tabbatar da fuska ba. Don Allah a duba izinin kyamara.',
   },
 
   // Igbo
@@ -82,6 +88,8 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     askRecipient: 'Ònye ka ị chọrọ izipu ego?',
     recipientNotFound: (name) => `Achọtaghị m onye a na-akpọ ${name}. Biko lelee aha ahụ ma nwaa ọzọ.`,
     recipientAmbiguous: (name, candidates) => `Achọtara m ndị karịrị otu a na-akpọ ${name}: ${candidates.join(', ')}. Biko họrọ onye ziri ezi.`,
+    micDisabled: 'Anyị enweghị ike ịnụ olu gị n\'ihi na e mechiri ohere microphone. Biko gbanwee ya na ntọala ihu igbe gị ma ọ bụ jiri nhọrọ ndị dị n\'okpuru.',
+    cameraError: 'Enweghị ike imeghe igwefoto maka nyocha ihu. Biko lelee ikike igwefoto gị.',
   },
 
   // Nigerian Pidgin
@@ -103,6 +111,8 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     askRecipient: 'Who you wan send the money give?',
     recipientNotFound: (name) => `I no fit find anybody wey dem dey call ${name}. Abeg check di name well and try again.`,
     recipientAmbiguous: (name, candidates) => `I see pass one person wey dem dey call ${name}: ${candidates.join(', ')}. Abeg choose di correct one.`,
+    micDisabled: 'I no fit hear your voice because microphone dey off. Abeg enable am for your browser settings or use di options wey dey below.',
+    cameraError: 'I no fit open camera for face verification. Abeg check your camera permission.',
   },
 
   // English (Standard fallback)
@@ -124,6 +134,8 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     askRecipient: 'Who would you like to send the money to?',
     recipientNotFound: (name) => `I couldn't find ${name}. Please check the name and try again.`,
     recipientAmbiguous: (name, candidates) => `I found more than one person named ${name}: ${candidates.join(', ')}. Please choose the correct recipient.`,
+    micDisabled: 'I can\'t hear you because microphone access is disabled. Please enable it in your browser settings or use the options below.',
+    cameraError: 'Unable to open the camera for face verification. Please check your camera permissions.',
   },
 };
 
