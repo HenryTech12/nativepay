@@ -355,7 +355,7 @@ export const api = {
    * Process raw audio recording via backend Whisper and NLP.
    */
   async processVoice(audioBlob: Blob, language?: string): Promise<ApiResponse<{
-    transcription: string;
+    text: string;
     intent: {
       action: string;
       amount?: number;
@@ -369,7 +369,7 @@ export const api = {
     if (language) formData.append('language', language);
 
     return request<{
-      transcription: string;
+      text: string;
       intent: {
         action: string;
         amount?: number;
@@ -386,12 +386,12 @@ export const api = {
   /**
    * Transcribe audio speech only.
    */
-  async transcribeAudio(audioBlob: Blob, language?: string): Promise<ApiResponse<{ transcription: string }>> {
+  async transcribeAudio(audioBlob: Blob, language?: string): Promise<ApiResponse<{ text: string }>> {
     const formData = new FormData();
     formData.append('audio', audioBlob, 'recording.wav');
     if (language) formData.append('language', language);
 
-    return request<{ transcription: string }>('/api/transcribe', {
+    return request<{ text: string }>('/api/transcribe', {
       method: 'POST',
       body: formData,
     });
