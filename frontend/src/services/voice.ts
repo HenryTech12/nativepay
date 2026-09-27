@@ -236,7 +236,7 @@ function playAudioBlob(blob: Blob): Promise<void> {
   });
 }
 
-
+/**
  * Speaks `text` in the user's selected language via the backend's YarnGPT
  * TTS provider (/api/tts). No client-side substitute is used: browsers'
  * speechSynthesis has no real Yoruba/Igbo/Hausa support, so silently
