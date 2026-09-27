@@ -88,6 +88,14 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
   // Audio recorder ref
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const speechStopperRef = useRef<(() => void) | null>(null);
+  // Synchronous guard against executeFaceCheck running twice (e.g. the
+  // "Verify Face Now" button tapped while the 1.6s auto-scan is also
+  // in flight). React state updates are async/batched, so checking
+  // faceState alone lets two near-simultaneous calls both pass the
+  // check before either state update commits — this ref closes that
+  // race immediately, in the same tick.
+  const faceCheckStartedRef = useRef<boolean>(false);
+  const faceScanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Suggested quick prompts if user prefers clicking or is in a quiet room
   const samplePrompts = [
@@ -151,6 +159,10 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
   };
 
   const stopCamera = () => {
+    if (faceScanTimeoutRef.current) {
+      clearTimeout(faceScanTimeoutRef.current);
+      faceScanTimeoutRef.current = null;
+    }
     if (cameraStreamRef.current) {
       stopCameraStream(cameraStreamRef.current);
       cameraStreamRef.current = null;
@@ -417,6 +429,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
 
     setVoiceState('verifying');
     setFaceState('camera_loading');
+    faceCheckStartedRef.current = false;
 
     // Spoken guidance in customer language
     speak(phrases.cameraPrompt);
@@ -431,7 +444,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       setFaceState('detecting');
 
       // Auto-trigger face detection scan after camera stabilises (1.5 seconds)
-      setTimeout(() => {
+      faceScanTimeoutRef.current = setTimeout(() => {
         executeFaceCheck();
       }, 1600);
     } catch (err) {
@@ -444,6 +457,12 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
 
   // Run Biometric Verification Check
   const executeFaceCheck = async () => {
+    // Closes the race between the auto-scan timer and the manual
+    // "Verify Face Now" button — whichever call gets here first wins,
+    // the other is a no-op.
+    if (faceCheckStartedRef.current) return;
+    faceCheckStartedRef.current = true;
+
     setFaceState('verifying');
 
     let descriptor: number[] = [];
@@ -790,19 +809,22 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
 
               {/* Controls */}
               <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={executeFaceCheck}
-                  className="py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl flex items-center gap-2 cursor-pointer text-sm shadow-sm"
-                >
-                  <Camera className="w-4 h-4" />
-                  Verify Face Now
-                </button>
+                {faceState === 'detecting' && (
+                  <button
+                    onClick={executeFaceCheck}
+                    className="py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl flex items-center gap-2 cursor-pointer text-sm shadow-sm"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Verify Face Now
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     stopCamera();
                     setVoiceState('confirming');
                   }}
-                  className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-sm cursor-pointer"
+                  disabled={faceState === 'verifying' || faceState === 'verified'}
+                  className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Back
                 </button>
