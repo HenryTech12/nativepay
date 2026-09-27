@@ -301,11 +301,21 @@ export const api = {
   /**
    * Execute the finalized transaction.
    */
-  async sendTransaction(id: string, sessionToken?: string): Promise<ApiResponse<{ success: boolean; transaction: Transaction }>> {
+  async sendTransaction(id: string, sessionToken?: string): Promise<ApiResponse<{
+    id: string;
+    state: string;
+    error?: string | null;
+    bmoniReference?: string | null;
+  }>> {
     const headers: Record<string, string> = {};
     if (sessionToken) headers['x-session-token'] = sessionToken;
 
-    return request<{ success: boolean; transaction: Transaction }>('/api/transactions/send', {
+    return request<{
+      id: string;
+      state: string;
+      error?: string | null;
+      bmoniReference?: string | null;
+    }>('/api/transactions/send', {
       method: 'POST',
       headers,
       body: JSON.stringify({ id }),

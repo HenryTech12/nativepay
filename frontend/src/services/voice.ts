@@ -237,84 +237,25 @@ function playAudioBlob(blob: Blob): Promise<void> {
 }
 
 /**
- * Browser Web Speech API fallback. KNOWN PROVIDER LIMITATION: most browsers
- * (Chrome, Edge, Safari on both desktop and mobile) ship with no Yoruba,
- * Igbo, or Hausa voice packs, so when this fallback is used for those
- * languages the text is still correct, but pronunciation will default to
- * whatever English/Nigerian-English voice the browser can find. This
- * fallback exists purely so voice feedback is never completely silent when
- * the cloud provider is unreachable -- it is not a substitute for real
- * language support.
- */
-function speakWithBrowserSpeechSynthesis(text: string, languageCode: LanguageCode): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      resolve();
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.92; // comfortable, natural pace for elderly and clarity
-    utterance.pitch = 1.0;
-
-    const speechLangMap: Record<LanguageCode, string> = {
-      yo: 'yo-NG',
-      ha: 'ha-NG',
-      ig: 'ig-NG',
-      pcm: 'en-NG',
-      en: 'en-NG',
-    };
-    utterance.lang = speechLangMap[languageCode] || 'en-NG';
-
-    const voices = window.speechSynthesis.getVoices();
-    // Prioritize language match, then Nigerian English, then British/US English
-    const matchingVoice = voices.find(
-      (v) => v.lang.toLowerCase().startsWith(languageCode) || v.lang.includes(utterance.lang)
-    ) || voices.find(
-      (v) => v.lang.includes('NG') || v.lang.includes('en-GB') || v.lang.includes('en-US')
-    );
-
-    if (matchingVoice) {
-      utterance.voice = matchingVoice;
-    }
-
-    utterance.onend = () => resolve();
-    utterance.onerror = () => resolve();
-
-    // Fallback timeout in case speech engine hangs
-    setTimeout(() => resolve(), 7000);
-
-    window.speechSynthesis.speak(utterance);
-  });
-}
-
-/**
- * Speaks `text` in the user's selected language.
- *
- * Provider order:
- *   1. Backend cloud TTS (/api/tts) -- the provider actually capable of
- *      Nigerian-language synthesis. `languageCode` is passed through
- *      untouched so the backend can select the correct voice/model.
- *   2. Browser Web Speech API -- last-resort fallback so audio is never
- *      completely silent if the backend is unreachable (see known
- *      limitation documented on speakWithBrowserSpeechSynthesis above).
+ * Speaks `text` in the user's selected language via the backend's YarnGPT
+ * TTS provider (/api/tts). No client-side substitute is used: browsers'
+ * speechSynthesis has no real Yoruba/Igbo/Hausa support, so silently
+ * falling back to it would mean the user hears mispronounced audio while
+ * believing the real voice feature is working. If the backend call fails,
+ * this throws instead of masking the failure, so the caller can surface a
+ * real error (e.g. "voice playback unavailable") instead of pretending
+ * everything is fine.
  */
 export async function speakText(text: string, languageCode: LanguageCode = 'en'): Promise<void> {
   if (!text) return;
 
-  try {
-    const cloudResult = await api.synthesizeSpeech(text, languageCode);
-    if (cloudResult.ok && cloudResult.data) {
-      await playAudioBlob(cloudResult.data);
-      return;
-    }
-    console.warn('[TTS] Cloud synthesis unavailable, falling back to browser speech:', cloudResult.error);
-  } catch (err) {
-    console.warn('[TTS] Cloud synthesis request failed, falling back to browser speech:', err);
+  const cloudResult = await api.synthesizeSpeech(text, languageCode);
+  if (!cloudResult.ok || !cloudResult.data) {
+    console.error('[TTS] /api/tts failed:', cloudResult.error, cloudResult.technicalError);
+    throw new Error(cloudResult.technicalError || cloudResult.error || 'TTS_UNAVAILABLE');
   }
 
-  return speakWithBrowserSpeechSynthesis(text, languageCode);
+  await playAudioBlob(cloudResult.data);
 }
 
 /**
