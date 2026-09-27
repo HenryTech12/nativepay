@@ -166,6 +166,18 @@ def test_health_reports_configured_ai_provider(client, monkeypatch):
     assert client.get("/api/health").json()["aiProvider"] == "openai"
 
 
+def test_health_reports_yarngpt_configured(client, monkeypatch):
+    monkeypatch.setattr(yarngpt_service, "is_configured", lambda: False)
+    body = client.get("/api/health").json()
+    assert body["yarngptConfigured"] is False
+    assert body["ttsProvider"] is None
+
+    monkeypatch.setattr(yarngpt_service, "is_configured", lambda: True)
+    body = client.get("/api/health").json()
+    assert body["yarngptConfigured"] is True
+    assert body["ttsProvider"] == "yarngpt"
+
+
 def test_ai_provider_uses_openai_when_configured_and_healthy(client, monkeypatch):
     monkeypatch.setattr(openai_service, "is_configured", lambda: True)
     monkeypatch.setattr(openai_service, "transcribe_audio", _fake_openai_transcribe)

@@ -141,12 +141,18 @@ export const PosAgentView: React.FC = () => {
     // VoiceAssistantModal's guard).
     if (parsed.needsClarification === 'amount') {
       setErrorMessage(phrases.askAmount);
-      speakText(phrases.askAmount, langCode);
+      speakText(phrases.askAmount, langCode).catch((err) => {
+      console.error('[TTS] speakText failed:', err);
+      setErrorMessage('Voice playback is unavailable right now (backend TTS error).');
+    });
       return;
     }
     if (parsed.needsClarification === 'recipient') {
       setErrorMessage(phrases.askRecipient);
-      speakText(phrases.askRecipient, langCode);
+      speakText(phrases.askRecipient, langCode).catch((err) => {
+      console.error('[TTS] speakText failed:', err);
+      setErrorMessage('Voice playback is unavailable right now (backend TTS error).');
+    });
       return;
     }
 
@@ -165,7 +171,10 @@ export const PosAgentView: React.FC = () => {
       summaryText = phrases.balanceResponse(selectedCustomer?.balance || 0);
     }
 
-    speakText(summaryText, langCode);
+    speakText(summaryText, langCode).catch((err) => {
+      console.error('[TTS] speakText failed:', err);
+      setErrorMessage('Voice playback is unavailable right now (backend TTS error).');
+    });
   };
 
   // Start Camera for Biometric Verification
@@ -261,7 +270,10 @@ export const PosAgentView: React.FC = () => {
     } else {
       doneMsg = phrases.balanceSuccess(selectedCustomer.balance);
     }
-    speakText(doneMsg, langCode);
+    speakText(doneMsg, langCode).catch((err) => {
+      console.error('[TTS] speakText failed:', err);
+      setErrorMessage('Voice playback is unavailable right now (backend TTS error).');
+    });
   };
 
   // Reset to initial lookup

@@ -72,6 +72,9 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
   // (app/services/transaction_service.py) -- never fabricated client-side,
   // since /api/transactions/confirm 404s on any id it didn't issue itself.
   const [serverTxId, setServerTxId] = useState<string | null>(null);
+  // Surfaces a real backend TTS failure (e.g. YARNGPT_API_KEY not configured)
+  // instead of silently substituting the browser's own speech engine.
+  const [ttsUnavailable, setTtsUnavailable] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [completedTx, setCompletedTx] = useState<Transaction | null>(null);
   const [showReceipt, setShowReceipt] = useState<boolean>(false);
@@ -93,6 +96,20 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     `Check my account balance`,
     `Buy ₦1,000 airtime`,
   ];
+
+  // Speaks via the backend's real TTS provider (see services/voice.ts). If
+  // the backend call fails, this surfaces a visible banner instead of
+  // silently substituting the browser's speechSynthesis -- the underlying
+  // reason (e.g. YARNGPT_API_KEY missing) is logged to the console for
+  // debugging, and the on-screen text (already correctly localized) still
+  // conveys the message even when audio can't play.
+  const speak = (text: string) => {
+    setTtsUnavailable(false);
+    speakText(text, speechLang).catch((err) => {
+      console.error('[TTS] speakText failed:', err);
+      setTtsUnavailable(true);
+    });
+  };
 
   // Reset and start listening when opened
   useEffect(() => {
@@ -158,7 +175,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       console.warn('[Microphone init error]:', err);
       setVoiceState('error');
       setErrorMessage(phrases.micDisabled);
-      speakText(phrases.micDisabled, speechLang);
+      speak(phrases.micDisabled);
       return;
     }
 
@@ -215,7 +232,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     } else {
       setVoiceState('error');
       setErrorMessage(phrases.didNotCatch);
-      speakText(phrases.didNotCatch, speechLang);
+      speak(phrases.didNotCatch);
     }
   };
 
@@ -265,7 +282,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setIntent(partialIntent);
     setVoiceState('error');
     setErrorMessage(message);
-    speakText(message, speechLang);
+    speak(message);
   };
 
   // Process Text or Speech through Intent interpretation
@@ -368,7 +385,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     }
 
     if (spokenConfirmation) {
-      speakText(spokenConfirmation, speechLang);
+      speak(spokenConfirmation);
     }
   };
 
@@ -394,7 +411,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       setErrorMessage(
         phrases.insufficientFunds(currentCustomer.balance, requestedAmount)
       );
-      speakText(phrases.insufficientFunds(currentCustomer.balance, requestedAmount), speechLang);
+      speak(phrases.insufficientFunds(currentCustomer.balance, requestedAmount));
       return;
     }
 
@@ -402,7 +419,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setFaceState('camera_loading');
 
     // Spoken guidance in customer language
-    speakText(phrases.cameraPrompt, speechLang);
+    speak(phrases.cameraPrompt);
 
     try {
       const stream = await requestCameraStream();
@@ -421,7 +438,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       console.warn('[Camera error]:', err);
       setFaceState('failed');
       setErrorMessage(phrases.cameraError);
-      speakText(phrases.cameraError, speechLang);
+      speak(phrases.cameraError);
     }
   };
 
@@ -455,7 +472,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     stopCamera();
 
     // Spoken feedback in customer language
-    speakText(phrases.identityVerified, speechLang);
+    speak(phrases.identityVerified);
 
     // Proceed to execute transaction
     setTimeout(() => {
@@ -469,43 +486,57 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     setIsSubmitting(true);
     setVoiceState('transacting');
 
-    const txReference = `NP-${Math.floor(100000 + Math.random() * 900000)}`;
     // Use the id the backend itself issued when we evaluated this intent
     // (see evaluateWithBackend) -- /api/transactions/confirm 404s on any
-    // id it didn't create, so a client-fabricated id here would silently
-    // no-op every backend call below.
+    // id it didn't create. No id means we never got a valid evaluation from
+    // the backend in the first place, so there is nothing safe to execute.
     const txId = serverTxId;
-
-    // 1. Try sending through backend transaction flow
-    try {
-      if (txId) {
-        await api.confirmTransaction({
-          id: txId,
-          userId: currentCustomer.id,
-          action: toBackendAction(intent.action),
-          amount: intent.amount ?? 0,
-          recipient: intent.recipient ?? '',
-          confidence: intent.confidence,
-        });
-
-        await api.verifyTransactionFace({
-          id: txId,
-          faceDescriptor: descriptor,
-          matched: true,
-        });
-
-        await api.sendTransaction(txId);
-      }
-    } catch (err) {
-      console.warn('[Backend tx sync notice]:', err);
-      // Backend may be in demo mode without db connection; local ledger handles seamlessly
+    if (!txId) {
+      setIsSubmitting(false);
+      setVoiceState('error');
+      setErrorMessage(phrases.didNotCatch);
+      speak(phrases.didNotCatch);
+      return;
     }
 
-    // Create and save final verified transaction. Falls back to a locally
-    // generated id only when the backend call above didn't run/succeed --
-    // never sent to the backend itself, purely for local receipt display.
+    let sentTransaction: { reference?: string } | null = null;
+    try {
+      await api.confirmTransaction({
+        id: txId,
+        userId: currentCustomer.id,
+        action: toBackendAction(intent.action),
+        amount: intent.amount ?? 0,
+        recipient: intent.recipient ?? '',
+        confidence: intent.confidence,
+      });
+
+      await api.verifyTransactionFace({
+        id: txId,
+        faceDescriptor: descriptor,
+        matched: true,
+      });
+
+      const sendRes = await api.sendTransaction(txId);
+      if (!sendRes.ok || !sendRes.data || sendRes.data.state !== 'TRANSACTION_SUCCESS') {
+        throw new Error(sendRes.data?.error || sendRes.error || 'SEND_FAILED');
+      }
+      sentTransaction = { reference: sendRes.data.bmoniReference || undefined };
+    } catch (err) {
+      console.error('[Transaction failed]:', err);
+      setIsSubmitting(false);
+      setVoiceState('error');
+      const failMsg = 'We could not complete this transaction. Your account has not been charged. Please try again.';
+      setErrorMessage(failMsg);
+      speak(failMsg);
+      return;
+    }
+
+    const txReference = sentTransaction.reference || `NP-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    // Real, backend-confirmed transaction -- only reached once /api/transactions/send
+    // has actually reported success.
     const newTx: Transaction = {
-      id: txId ?? `tx_${Date.now()}`,
+      id: txId,
       userId: currentCustomer.id,
       action: intent.action,
       amount: intent.amount ?? 0,
@@ -536,7 +567,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       completionMessage = phrases.balanceSuccess(currentCustomer.balance);
     }
 
-    speakText(completionMessage, speechLang);
+    speak(completionMessage);
   };
 
   if (!isOpen) return null;
@@ -558,6 +589,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {ttsUnavailable && (
+          <div className="px-6 py-2 bg-amber-50 border-b border-amber-100 text-amber-800 text-xs flex items-center gap-2">
+            <span>🔇</span>
+            <span>Voice playback is unavailable right now (backend TTS error) — text responses still work.</span>
+          </div>
+        )}
 
         {/* Dynamic Modal Content by State */}
         <div className="p-6 sm:p-8">

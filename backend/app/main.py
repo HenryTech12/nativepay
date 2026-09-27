@@ -52,6 +52,8 @@ def health():
         "demoMode": not config.IS_PRODUCTION,
         "bmoniMockMode": bmoni_service.is_mock_mode(),
         "aiProvider": ai_provider.active_provider(),
+        "ttsProvider": "yarngpt" if yarngpt_service.is_configured() else None,
+        "yarngptConfigured": yarngpt_service.is_configured(),
         "dbConnected": db.is_ready(),
         "authRequired": config.REQUIRE_AUTH,
     }
