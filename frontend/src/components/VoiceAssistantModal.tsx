@@ -157,9 +157,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     } catch (err: unknown) {
       console.warn('[Microphone init error]:', err);
       setVoiceState('error');
-      setErrorMessage(
-        'Microphone access is disabled. You can enable it in your browser settings or use the sample requests below.'
-      );
+      setErrorMessage(phrases.micDisabled);
+      speakText(phrases.micDisabled, speechLang);
       return;
     }
 
@@ -216,6 +215,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     } else {
       setVoiceState('error');
       setErrorMessage(phrases.didNotCatch);
+      speakText(phrases.didNotCatch, speechLang);
     }
   };
 
@@ -420,9 +420,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     } catch (err) {
       console.warn('[Camera error]:', err);
       setFaceState('failed');
-      setErrorMessage(
-        'Unable to open camera for biometric verification. Please check camera permissions.'
-      );
+      setErrorMessage(phrases.cameraError);
+      speakText(phrases.cameraError, speechLang);
     }
   };
 
