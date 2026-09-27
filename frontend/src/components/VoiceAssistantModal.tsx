@@ -214,9 +214,9 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
         // Send to backend voice process if we have no speech transcript yet
         if (!transcript && audioBlob.size > 0) {
           const res = await api.processVoice(audioBlob, speechLang);
-          if (res.ok && res.data?.transcription) {
-            setTranscript(res.data.transcription);
-            processSpokenResult(res.data.transcription);
+          if (res.ok && res.data?.text) {
+            setTranscript(res.data.text);
+            processSpokenResult(res.data.text);
             return;
           }
         }
