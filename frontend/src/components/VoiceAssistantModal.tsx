@@ -525,9 +525,8 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       console.error('[Transaction failed]:', err);
       setIsSubmitting(false);
       setVoiceState('error');
-      const failMsg = 'We could not complete this transaction. Your account has not been charged. Please try again.';
-      setErrorMessage(failMsg);
-      speak(failMsg);
+      setErrorMessage(phrases.transactionFailed);
+      speak(phrases.transactionFailed);
       return;
     }
 
