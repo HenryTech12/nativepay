@@ -21,6 +21,7 @@ export interface SpokenPhrases {
   recipientAmbiguous: (name: string, candidates: string[]) => string;
   micDisabled: string;
   cameraError: string;
+  faceMismatch: string;
 }
 
 export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
@@ -46,6 +47,7 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     recipientAmbiguous: (name, candidates) => `Mo rí ènìyàn ju ọ̀kan lọ tí orúkọ wọn ń jẹ́ ${name}: ${candidates.join(', ')}. Ẹ jọ̀wọ́, ẹ yan ẹni tó tọ́.`,
     micDisabled: 'Kò lè gba ohùn yín nítorí pé a kò fún ẹ̀rọ ìgbóhùnsáfẹ́fẹ́ láàyè. Ẹ jọ̀wọ́, ẹ ṣí i sílẹ̀ nínú ètò ẹ̀rọ ayélujára yín tàbí kí ẹ lo àwọn àṣàyàn tí ó wà nísàlẹ̀.',
     cameraError: 'A kò lè ṣí kámẹ́rà fún ìdánimọ̀ ojú. Ẹ jọ̀wọ́, ẹ ṣàyẹ̀wò àṣẹ kámẹ́rà yín.',
+    faceMismatch: 'Ojú yín kò bá èyí tí a ní sílẹ̀ mu. Ẹ jọ̀wọ́, ẹ tún gbìyànjú tàbí kí ẹ bá aṣojú sọ̀rọ̀.',
   },
 
   // Hausa
@@ -70,6 +72,7 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     recipientAmbiguous: (name, candidates) => `Na sami mutane fiye da daya da ake kira ${name}: ${candidates.join(', ')}. Don Allah zabi wanda ya dace.`,
     micDisabled: 'Ba a iya jin muryar ku ba domin an kashe damar amfani da makirifo. Don Allah a kunna shi a saitunan burauzarku ko a yi amfani da zaɓuɓɓukan da ke ƙasa.',
     cameraError: 'Ba a iya buɗe kyamara don tabbatar da fuska ba. Don Allah a duba izinin kyamara.',
+    faceMismatch: "Fuskarku ba ta yi daidai da abin da muke da shi ba. Don Allah a sake gwadawa ko a tuntuɓi wakili.",
   },
 
   // Igbo
@@ -94,6 +97,7 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     recipientAmbiguous: (name, candidates) => `Achọtara m ndị karịrị otu a na-akpọ ${name}: ${candidates.join(', ')}. Biko họrọ onye ziri ezi.`,
     micDisabled: 'Anyị enweghị ike ịnụ olu gị n\'ihi na e mechiri ohere microphone. Biko gbanwee ya na ntọala ihu igbe gị ma ọ bụ jiri nhọrọ ndị dị n\'okpuru.',
     cameraError: 'Enweghị ike imeghe igwefoto maka nyocha ihu. Biko lelee ikike igwefoto gị.',
+    faceMismatch: "Ihu gị adabaghị nke edebere. Biko nwaa ọzọ ma ọ bụ kpọtụrụ onye ọrụ.",
   },
 
   // Nigerian Pidgin
@@ -118,6 +122,7 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     recipientAmbiguous: (name, candidates) => `I see pass one person wey dem dey call ${name}: ${candidates.join(', ')}. Abeg choose di correct one.`,
     micDisabled: 'I no fit hear your voice because microphone dey off. Abeg enable am for your browser settings or use di options wey dey below.',
     cameraError: 'I no fit open camera for face verification. Abeg check your camera permission.',
+    faceMismatch: 'Your face no match with wetin dey on file. Abeg try again or talk to agent.',
   },
 
   // English (Standard fallback)
@@ -142,6 +147,7 @@ export const LOCALIZED_VOICE_PHRASES: Record<LanguageCode, SpokenPhrases> = {
     recipientAmbiguous: (name, candidates) => `I found more than one person named ${name}: ${candidates.join(', ')}. Please choose the correct recipient.`,
     micDisabled: 'I can\'t hear you because microphone access is disabled. Please enable it in your browser settings or use the options below.',
     cameraError: 'Unable to open the camera for face verification. Please check your camera permissions.',
+    faceMismatch: "Your face didn't match what we have on file. Please try again or speak with an agent.",
   },
 };
 
