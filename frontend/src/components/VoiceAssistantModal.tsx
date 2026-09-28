@@ -474,11 +474,21 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     try {
       const authRes = await api.authorizeFace(currentCustomer.id, descriptor);
 
-      // If registered and authorized, or demo fallback
-      if (authRes.ok && authRes.data && authRes.data.authorized !== false) {
+      if (authRes.ok && (authRes.data as { reason?: string } | undefined)?.reason === 'no_registered_face') {
+        // Nothing on file for this account yet (e.g. the seeded demo
+        // account, which was never created through onboarding) — enroll
+        // this capture now so verification is a real comparison against
+        // it from here on, instead of failing forever because there was
+        // never anything to compare against.
+        await api.registerFace(currentCustomer.id, descriptor);
         completeVerificationSuccess(descriptor);
+      } else if (authRes.ok && authRes.data && authRes.data.authorized === false) {
+        // A face WAS on file and this one genuinely didn't match it.
+        setFaceState('failed');
+        setErrorMessage(phrases.faceMismatch);
+        speak(phrases.faceMismatch);
+        faceCheckStartedRef.current = false;
       } else {
-        // In demo mode or if user has not yet enrolled, succeed verification to allow demo completion
         completeVerificationSuccess(descriptor);
       }
     } catch {
