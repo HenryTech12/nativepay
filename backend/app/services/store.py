@@ -25,6 +25,8 @@ recipients: dict[str, Recipient] = {
     "adewale": Recipient(name="Adewale", account="0123456789"),
     "ngozi": Recipient(name="Ngozi", account="9876543210"),
     "ibrahim": Recipient(name="Ibrahim", account="1234567890"),
+    "john": Recipient(name="John", account="1122334455"),
+    "ada okafor": Recipient(name="Ada Okafor", account="5566778899"),
 }
 
 transactions: dict[str, TransactionRecord] = {}

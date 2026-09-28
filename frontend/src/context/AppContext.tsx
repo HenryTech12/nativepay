@@ -8,6 +8,46 @@ import {
   BackendHealth,
 } from '../types';
 import { api } from '../services/api';
+import { fromBackendAction } from '../services/voice';
+
+/** Shape actually returned by GET /api/transactions (backend's
+ * TransactionRecord) -- distinct from this file's own Transaction type,
+ * which the UI is written against. See refreshTransactions below. */
+interface BackendTransactionRecord {
+  id: string;
+  userId: string;
+  action: string;
+  amount: number | null;
+  recipient: string | null;
+  recipientAccount: string | null;
+  confidence: number | null;
+  state: string;
+  createdAt: string;
+  bmoniReference: string | null;
+  error: string | null;
+}
+
+function fromBackendState(state: string): Transaction['status'] {
+  switch (state) {
+    case 'TRANSACTION_SUCCESS':
+      return 'successful';
+    case 'TRANSACTION_PROCESSING':
+      return 'processing';
+    case 'USER_CANCELLED':
+      return 'cancelled';
+    case 'TRANSACTION_FAILED':
+    case 'BMONI_API_ERROR':
+    case 'INSUFFICIENT_FUNDS':
+    case 'INVALID_AMOUNT':
+    case 'UNKNOWN_RECIPIENT':
+    case 'FACE_VERIFICATION_FAILED':
+    case 'TRANSACTION_EXPIRED':
+    case 'UNSUPPORTED_ACTION':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+}
 
 export const SUPPORTED_LANGUAGES: Language[] = [
   {
@@ -274,8 +314,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshTransactions = useCallback(async () => {
     const res = await api.getTransactions(currentCustomer.id, sessionToken || undefined);
     if (res.ok && res.data && Array.isArray(res.data) && res.data.length > 0) {
-      setTransactions(res.data);
-      localStorage.setItem('nativepay_txs', JSON.stringify(res.data));
+      // The backend's TransactionRecord uses a different shape/vocabulary
+      // than the frontend's own Transaction type (`state` vs `status`,
+      // `bmoniReference` vs `reference`, action `"send"` vs `"transfer"`,
+      // etc.) -- map field-by-field rather than casting, or every
+      // real transaction renders with blank status/reference here.
+      const mapped: Transaction[] = (res.data as unknown as BackendTransactionRecord[]).map((tx) => ({
+        id: tx.id,
+        userId: tx.userId,
+        action: fromBackendAction(tx.action),
+        amount: tx.amount ?? 0,
+        recipient: tx.recipient,
+        recipientAccount: tx.recipientAccount,
+        status: fromBackendState(tx.state),
+        createdAt: tx.createdAt,
+        reference: tx.bmoniReference || tx.id,
+        confidence: tx.confidence ?? undefined,
+        failureReason: tx.error ?? undefined,
+      }));
+      setTransactions(mapped);
+      localStorage.setItem('nativepay_txs', JSON.stringify(mapped));
     }
   }, [currentCustomer.id, sessionToken]);
 
