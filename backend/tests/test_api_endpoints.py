@@ -421,7 +421,8 @@ def test_send_before_face_verification_rejected(client):
 # Face verification security (P0.1)
 # ---------------------------------------------------------------------------
 
-def test_verify_face_wrong_descriptor_fails(client):
+def test_verify_face_wrong_descriptor_fails(client, monkeypatch):
+    monkeypatch.setattr(config, "DEMO_FACE_ALWAYS_PASS", False)
     user_id, _correct_descriptor = _fresh_user(client)
     tx = client.post("/api/transactions/confirm", json={"userId": user_id, "action": "send", "amount": 1000, "recipient": "adewale", "confidence": 0.9}).json()
     client.post("/api/transactions/confirm", json={"id": tx["id"]})
@@ -430,7 +431,8 @@ def test_verify_face_wrong_descriptor_fails(client):
     assert verified["state"] == "FACE_VERIFICATION_FAILED"
 
 
-def test_verify_face_invalid_descriptor_shape_400(client):
+def test_verify_face_invalid_descriptor_shape_400(client, monkeypatch):
+    monkeypatch.setattr(config, "DEMO_FACE_ALWAYS_PASS", False)
     user_id, _ = _fresh_user(client)
     tx = client.post("/api/transactions/confirm", json={"userId": user_id, "action": "send", "amount": 1000, "recipient": "adewale", "confidence": 0.9}).json()
     client.post("/api/transactions/confirm", json={"id": tx["id"]})
@@ -439,9 +441,10 @@ def test_verify_face_invalid_descriptor_shape_400(client):
     assert resp.json()["detail"]["error"] == "INVALID_FACE_DESCRIPTOR"
 
 
-def test_verify_face_client_matched_ignored_when_face_registered(client):
+def test_verify_face_client_matched_ignored_when_face_registered(client, monkeypatch):
     """The core P0.1 fix: an enrolled account can no longer be waved
     through with a bare client-asserted matched=True and no descriptor."""
+    monkeypatch.setattr(config, "DEMO_FACE_ALWAYS_PASS", False)
     user_id, _ = _fresh_user(client)
     tx = client.post("/api/transactions/confirm", json={"userId": user_id, "action": "send", "amount": 1000, "recipient": "adewale", "confidence": 0.9}).json()
     client.post("/api/transactions/confirm", json={"id": tx["id"]})
@@ -451,6 +454,7 @@ def test_verify_face_client_matched_ignored_when_face_registered(client):
 
 
 def test_verify_face_fallback_only_for_unenrolled_account_in_dev(client, monkeypatch):
+    monkeypatch.setattr(config, "DEMO_FACE_ALWAYS_PASS", False)
     assert config.ALLOW_CLIENT_FACE_FALLBACK is True  # test env is not production
     user_id = f"test-{uuid.uuid4().hex[:10]}"
     client.post("/api/accounts/register", json={"userId": user_id, "fullName": "No Face", "address": "x", "language": "en"})
@@ -461,7 +465,21 @@ def test_verify_face_fallback_only_for_unenrolled_account_in_dev(client, monkeyp
     assert resp.json()["state"] == "FACE_VERIFIED"
 
 
+def test_verify_face_demo_always_pass_bypasses_check(client, monkeypatch):
+    """DEMO_FACE_ALWAYS_PASS is a temporary, explicitly-labeled escape
+    hatch for live demos — confirm it does what it says, and only
+    while explicitly enabled."""
+    monkeypatch.setattr(config, "DEMO_FACE_ALWAYS_PASS", True)
+    user_id, _correct_descriptor = _fresh_user(client)
+    tx = client.post("/api/transactions/confirm", json={"userId": user_id, "action": "send", "amount": 1000, "recipient": "adewale", "confidence": 0.9}).json()
+    client.post("/api/transactions/confirm", json={"id": tx["id"]})
+    wrong_descriptor = make_face_descriptor(seed=0.999)
+    verified = client.post("/api/transactions/verify-face", json={"id": tx["id"], "faceDescriptor": wrong_descriptor}).json()
+    assert verified["state"] == "FACE_VERIFIED"
+
+
 def test_verify_face_no_fallback_in_production(client, monkeypatch):
+    monkeypatch.setattr(config, "DEMO_FACE_ALWAYS_PASS", False)
     monkeypatch.setattr(config, "ALLOW_CLIENT_FACE_FALLBACK", False)
     user_id = f"test-{uuid.uuid4().hex[:10]}"
     client.post("/api/accounts/register", json={"userId": user_id, "fullName": "No Face", "address": "x", "language": "en"})
