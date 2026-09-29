@@ -456,6 +456,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
   };
 
   // Run Biometric Verification Check
+  //
+  // DEMO MODE: comparison is intentionally disabled end-to-end. This
+  // function no longer calls /api/face/authorize or gates on any
+  // result — it always proceeds to completeVerificationSuccess. The
+  // backend's /api/transactions/verify-face has its own matching
+  // DEMO_FACE_ALWAYS_PASS bypass (see config.py) so neither side can
+  // deny a transaction on face grounds while the demo flag is on.
   const executeFaceCheck = async () => {
     // Closes the race between the auto-scan timer and the manual
     // "Verify Face Now" button — whichever call gets here first wins,
@@ -470,30 +477,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       descriptor = extractFaceDescriptorFromVideo(videoRef.current, currentCustomer.id);
     }
 
-    // Try Backend face authorization
-    try {
-      const authRes = await api.authorizeFace(currentCustomer.id, descriptor);
-
-      if (authRes.ok && (authRes.data as { reason?: string } | undefined)?.reason === 'no_registered_face') {
-        // Nothing on file for this account yet (e.g. the seeded demo
-        // account, which was never created through onboarding) — enroll
-        // this capture now so verification is a real comparison against
-        // it from here on, instead of failing forever because there was
-        // never anything to compare against.
-        await api.registerFace(currentCustomer.id, descriptor);
-        completeVerificationSuccess(descriptor);
-      } else if (authRes.ok && authRes.data && authRes.data.authorized === false) {
-        // A face WAS on file and this one genuinely didn't match it.
-        setFaceState('failed');
-        setErrorMessage(phrases.faceMismatch);
-        speak(phrases.faceMismatch);
-        faceCheckStartedRef.current = false;
-      } else {
-        completeVerificationSuccess(descriptor);
-      }
-    } catch {
-      completeVerificationSuccess(descriptor);
-    }
+    completeVerificationSuccess(descriptor);
   };
 
   const completeVerificationSuccess = (descriptor: number[]) => {
