@@ -9,7 +9,13 @@ interface DemoVideoModalProps {
 
 export const DemoVideoModal: React.FC<DemoVideoModalProps> = ({ isOpen, onClose }) => {
   const { openVoiceModal, setViewMode } = useApp();
-  const rawVideoUrl = (import.meta.env.VITE_DEMO_VIDEO_URL as string | undefined)?.trim() || '';
+  // Falls back to this Drive link if VITE_DEMO_VIDEO_URL isn't set on the
+  // hosting platform (e.g. Vercel project env vars), so the demo video
+  // works out of the box without extra deploy-time config.
+  const DEFAULT_DEMO_VIDEO_URL =
+    'https://drive.google.com/file/d/1g7WxzmPyTqQTG-p7L7OMJNq71IG9Xxpp/view?usp=drivesdk';
+  const rawVideoUrl =
+    (import.meta.env.VITE_DEMO_VIDEO_URL as string | undefined)?.trim() || DEFAULT_DEMO_VIDEO_URL;
 
   // Close on Escape key
   useEffect(() => {
@@ -28,7 +34,7 @@ export const DemoVideoModal: React.FC<DemoVideoModalProps> = ({ isOpen, onClose 
 
   if (!isOpen) return null;
 
-  // Helper to determine embed URL for YouTube / Vimeo or direct video
+  // Helper to determine embed URL for YouTube / Vimeo / Google Drive or direct video
   const getEmbedUrl = (url: string): { type: 'iframe' | 'video'; src: string } => {
     if (url.includes('youtube.com/watch?v=')) {
       const videoId = url.split('v=')[1]?.split('&')[0];
@@ -41,6 +47,17 @@ export const DemoVideoModal: React.FC<DemoVideoModalProps> = ({ isOpen, onClose 
     if (url.includes('vimeo.com/')) {
       const videoId = url.split('vimeo.com/')[1]?.split('?')[0];
       return { type: 'iframe', src: `https://player.vimeo.com/video/${videoId}?autoplay=1` };
+    }
+    if (url.includes('drive.google.com')) {
+      // Share links look like .../file/d/<ID>/view?usp=... — Drive files
+      // aren't raw video files a <video> tag can play directly, but
+      // Drive has a dedicated embeddable preview URL for the same ID.
+      // Requires the file's sharing setting to be "Anyone with the link".
+      const match = url.match(/\/file\/d\/([^/]+)/);
+      const fileId = match?.[1];
+      if (fileId) {
+        return { type: 'iframe', src: `https://drive.google.com/file/d/${fileId}/preview` };
+      }
     }
     return { type: 'video', src: url };
   };
