@@ -306,6 +306,15 @@ def transactions_verify_face(body: VerifyFaceBody, session_user: Optional[str] =
     if transaction_service.is_transaction_expired(existing):
         return transaction_service.expire_transaction(body.id)
 
+    if config.DEMO_FACE_ALWAYS_PASS:
+        # DEMO-ONLY: bypasses real comparison entirely. See config.py.
+        logger.warning(
+            "DEMO_FACE_ALWAYS_PASS is on — accepting face verification for "
+            "tx %s without checking it. Do not ship this beyond the demo.",
+            body.id,
+        )
+        return transaction_service.record_face_verification(body.id, True)
+
     if body.faceDescriptor:
         try:
             result = face_auth.authorize_by_face(existing.userId, body.faceDescriptor)

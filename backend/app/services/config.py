@@ -41,3 +41,14 @@ TRANSACTION_TTL_SECONDS = int(os.environ.get("TRANSACTION_TTL_SECONDS", "300"))
 # flag; in non-production it's still only honored for accounts with no
 # registered face descriptor (see main.py).
 ALLOW_CLIENT_FACE_FALLBACK = not IS_PRODUCTION
+
+# DEMO-ONLY ESCAPE HATCH — set DEMO_FACE_ALWAYS_PASS=false (or unset it)
+# to restore real face-descriptor comparison. Defaults to true here so
+# it's on immediately without needing a Render dashboard change during
+# a live demo crunch. Bypasses face_auth entirely on
+# /api/transactions/verify-face — this is NOT a substitute for real
+# verification and must never be left on for anything beyond a demo.
+# Also refuses to apply in production, same guard as the fallback above.
+DEMO_FACE_ALWAYS_PASS = (not IS_PRODUCTION) and os.environ.get("DEMO_FACE_ALWAYS_PASS", "true").strip().lower() in (
+    "1", "true", "yes", "on",
+)
